@@ -14,28 +14,19 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * BigBlueButtonBN internal API for completion
- *
- * @package   mod_bigbluebuttonbn
- * @category  external
- * @copyright 2018 onwards, Blindside Networks Inc
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace mod_bigbluebuttonbn\external;
 
 use external_api;
 use external_function_parameters;
 use external_single_structure;
 use external_value;
-use mod_bigbluebuttonbn\event\events;
-use mod_bigbluebuttonbn\local\bbb_constants;
-use mod_bigbluebuttonbn\local\bigbluebutton;
-use mod_bigbluebuttonbn\local\helpers\instance;
-use mod_bigbluebuttonbn\local\helpers\meeting;
-use moodle_exception;
-use restricted_context_exception;
+use mod_bigbluebuttonbn\instance;
+use mod_bigbluebuttonbn\local\proxy\bigbluebutton_proxy;
+
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->libdir . '/externallib.php');
 
 /**
  * External service to validate completion.
@@ -62,12 +53,6 @@ class completion_validate extends external_api {
      *
      * @param int $bigbluebuttonbnid the bigbluebuttonbn instance id
      * @return array (empty array for now)
-     * @throws \coding_exception
-     * @throws \dml_exception
-     * @throws \invalid_parameter_exception
-     * @throws \required_capability_exception
-     * @throws \restricted_context_exception
-     * @throws moodle_exception
      */
     public static function execute(
         int $bigbluebuttonbnid
@@ -78,27 +63,41 @@ class completion_validate extends external_api {
         ] = self::validate_parameters(self::execute_parameters(), [
             'bigbluebuttonbnid' => $bigbluebuttonbnid,
         ]);
-
+        $result = ['warnings' => []];
         // Fetch the session, features, and profile.
-        [
-            'bbbsession' => $bbbsession,
-            'context' => $context
-        ] = instance::get_session_from_id($bigbluebuttonbnid);
+        $instance = instance::get_from_instanceid($bigbluebuttonbnid);
+        if ($instance) {
+            $context = $instance->get_context();
 
-        // Validate that the user has access to this activity and to manage recordings.
-        self::validate_context($context);
+            // Validate that the user has access to this activity.
+            self::validate_context($context);
 
-        // Get list with all the users enrolled in the course.
-        list($sort, $sqlparams) = users_order_by_sql('u');
-        // TODO : check for access / role here.
-        $users = get_enrolled_users($context, 'mod/bigbluebuttonbn:view', 0, 'u.*', $sort);
-        foreach ($users as $user) {
-            // Enqueue a task for processing the completion.
-            bigbluebutton::bigbluebuttonbn_enqueue_completion_update(
-                $bbbsession['bigbluebuttonbn'], $user->id);
+            // Get list with all the users enrolled in the course.
+            [$sort, $sqlparams] = users_order_by_sql('u');
+            if (has_capability('moodle/course:update', $context)) {
+                $users = get_enrolled_users($context, 'mod/bigbluebuttonbn:view', 0, 'u.*', $sort);
+                foreach ($users as $user) {
+                    // Enqueue a task for processing the completion.
+                    bigbluebutton_proxy::enqueue_completion_event($instance->get_instance_data(), $user->id);
+                }
+            } else {
+                $result['warnings'][] = [
+                    'item' => 'mod_bigbluebuttonbn',
+                    'itemid' => $instance->get_instance_id(),
+                    'warningcode' => 'nopermissions',
+                    'message' => get_string('nopermissions', 'error', 'completion_validate')
+                ];
+            }
+        } else {
+            $result['warnings'][] = [
+                'item' => 'mod_bigbluebuttonbn',
+                'itemid' => $bigbluebuttonbnid,
+                'warningcode' => 'indexerrorbbtn',
+                'message' => get_string('index_error_bbtn', 'mod_bigbluebuttonbn', $bigbluebuttonbnid)
+            ];
         }
         // We might want to return a status here or some warnings.
-        return [];
+        return $result;
     }
 
     /**
@@ -108,6 +107,9 @@ class completion_validate extends external_api {
      * @since Moodle 3.0
      */
     public static function execute_returns(): external_single_structure {
-        return new external_single_structure([]);
+        return new external_single_structure([
+                'warnings' => new \external_warnings()
+            ]
+        );
     }
 }

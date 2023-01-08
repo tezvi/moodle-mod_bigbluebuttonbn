@@ -23,45 +23,55 @@
  * @author    Jesus Federico  (jesus [at] blindsidenetworks [dt] com)
  * @author    Darko Miletic  (darko.miletic [at] gmail [dt] com)
  */
-defined('MOODLE_INTERNAL') || die;
-require(__DIR__.'/../../config.php');
 
-use mod_bigbluebuttonbn\local\broker;
-use mod_bigbluebuttonbn\local\view;
+// We should not have any require login or MOODLE_INTERNAL Check in this file.
+// phpcs:disable moodle.Files.MoodleInternal.MoodleInternalGlobalState,moodle.Files.RequireLogin.Missing
+require(__DIR__ . '/../../config.php');
+
+use mod_bigbluebuttonbn\broker;
+use mod_bigbluebuttonbn\instance;
+use mod_bigbluebuttonbn\local\config;
+use mod_bigbluebuttonbn\meeting;
 
 global $PAGE, $USER, $CFG, $SESSION, $DB;
 
 $params = $_REQUEST;
 
-if (!isset($params['action']) || empty($params['action'])) {
-    header('HTTP/1.0 400 Bad Request. Parameter ['.$params['action'].'] was not included');
-    return;
-}
-
-$error = broker::validate_parameters($params);
+$broker = new broker();
+$error = $broker->validate_parameters($params);
 if (!empty($error)) {
-    header('HTTP/1.0 400 Bad Request. '.$error);
+    $msg = 'HTTP/1.0 400 Bad Request. ' . $error;
+    debugging($msg, DEBUG_DEVELOPER);
+    header($msg);
     return;
 }
 
-$bbbbrokerinstance = view::bigbluebuttonbn_view_instance_bigbluebuttonbn($params['bigbluebuttonbn']);
-$bigbluebuttonbn = $bbbbrokerinstance['bigbluebuttonbn'];
-$context = context_course::instance($bigbluebuttonbn->course);
-$PAGE->set_context($context);
+$action = $params['action'];
+
+$instance = instance::get_from_instanceid($params['bigbluebuttonbn']);
+if (empty($instance)) {
+    $msg = 'HTTP/1.0 410 Gone. The activity may have been deleted';
+    debugging($msg, DEBUG_DEVELOPER);
+    header($msg);
+    return;
+}
+
+$PAGE->set_context($instance->get_context());
 
 try {
-    $a = strtolower($params['action']);
-    if ($a == 'recording_ready') {
-        broker::recording_ready($params, $bigbluebuttonbn);
-        return;
+    switch (strtolower($action)) {
+        case 'recording_ready':
+            broker::process_recording_ready($instance, $params);
+            return;
+        case 'meeting_events':
+            // When meeting_events callback is implemented by BigBlueButton, Moodle receives a POST request
+            // which is processed in the function using super globals.
+            broker::process_meeting_events($instance);
+            return;
     }
-    if ($a == 'meeting_events') {
-        // When meeting_events callback is implemented by BigBlueButton, Moodle receives a POST request
-        // which is processed in the function using super globals.
-        broker::meeting_events($bigbluebuttonbn);
-        return;
-    }
-    header('HTTP/1.0 400 Bad request. The action '. $a . ' doesn\'t exist');
+    $msg = "HTTP/1.0 400 Bad request. The action '{$action}' does not exist";
 } catch (Exception $e) {
-    header('HTTP/1.0 500 Internal Server Error. '.$e->getMessage());
+    $msg = 'HTTP/1.0 500 Internal Server Error. ' . $e->getMessage();
 }
+debugging($msg, DEBUG_DEVELOPER);
+header($msg);

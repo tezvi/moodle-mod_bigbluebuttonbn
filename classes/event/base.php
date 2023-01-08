@@ -14,18 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * The mod_bigbluebuttonbn abstract base event.
- *
- * @package   mod_bigbluebuttonbn
- * @copyright 2010 onwards, Blindside Networks Inc
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @author    Jesus Federico  (jesus [at] blindsidenetworks [dt] com)
- */
-
 namespace mod_bigbluebuttonbn\event;
-
-defined('MOODLE_INTERNAL') || die();
 
 /**
  * The mod_bigbluebuttonbn abstract base event class. Most mod_bigbluebuttonbn events can extend this class.
@@ -36,7 +25,7 @@ defined('MOODLE_INTERNAL') || die();
  */
 abstract class base extends \core\event\base {
 
-    /** @var \bigbluebuttonbn */
+    /** @var $bigbluebuttonbn */
     protected $bigbluebuttonbn;
 
     /**
@@ -51,7 +40,7 @@ abstract class base extends \core\event\base {
      *
      * @var array
      */
-    protected static $objectidmapping = array('db' => 'bigbluebuttonbn', 'restore' => 'bigbluebuttonbn');
+    protected static $objectidmapping = ['db' => 'bigbluebuttonbn', 'restore' => 'bigbluebuttonbn'];
 
     /**
      * Legacy log data.
@@ -63,7 +52,7 @@ abstract class base extends \core\event\base {
     /**
      * Init method.
      * @param string $crud
-     * @param integer $edulevel
+     * @param int $edulevel
      */
     protected function init($crud = 'r', $edulevel = self::LEVEL_PARTICIPATING) {
         $this->data['crud'] = $crud;
@@ -77,13 +66,13 @@ abstract class base extends \core\event\base {
      * @return string
      */
     public function get_description() {
-        $vars = array(
+        $vars = [
             'userid' => $this->userid,
             'courseid' => $this->courseid,
             'objectid' => $this->objectid,
             'contextinstanceid' => $this->contextinstanceid,
             'other' => $this->other
-          );
+        ];
         $string = $this->description;
         foreach ($vars as $key => $value) {
             $string = str_replace("##" . $key, $value, $string);
@@ -97,7 +86,7 @@ abstract class base extends \core\event\base {
      * @return \moodle_url
      */
     public function get_url() {
-        return new \moodle_url('/mod/bigbluebuttonbn/view.php', array('id' => $this->contextinstanceid));
+        return new \moodle_url('/mod/bigbluebuttonbn/view.php', ['id' => $this->contextinstanceid]);
     }
 
     /**
@@ -113,7 +102,7 @@ abstract class base extends \core\event\base {
             $fullurl .= '&' . $url;
         }
 
-        $this->legacylogdata = array($this->courseid, 'bigbluebuttonbn', $action, $fullurl, $info, $this->contextinstanceid);
+        $this->legacylogdata = [$this->courseid, 'bigbluebuttonbn', $action, $fullurl, $info, $this->contextinstanceid];
     }
 
     /**

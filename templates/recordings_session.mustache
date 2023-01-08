@@ -21,10 +21,21 @@
 
     Example context (json):
     {
-        'bbbid' : 3
-        'has_records': true,
-        'search_input' : {... search input data ...}
-        'import_button' : {... import input button data ...}
+        "bbbid" : 3,
+        "has_records": true,
+        "search_input": {},
+        "import_button": {
+            "method" : "get",
+            "url" : "#",
+            "primary" : 1,
+            "tooltip" : "This is a tooltip",
+            "label" : "This is a the button text",
+            "id": "thisismybutton",
+            "attributes": [{
+                "name": "data-attribute",
+                "value": "yeah"
+            }]
+        }
     }
 }}
 

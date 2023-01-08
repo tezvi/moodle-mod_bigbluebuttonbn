@@ -25,7 +25,8 @@
 
 namespace mod_bigbluebuttonbn\analytics\indicator;
 
-defined('MOODLE_INTERNAL') || die();
+use cm_info;
+use lang_string;
 
 /**
  * Cognitive depth indicator - bigbluebuttonbn.
@@ -41,16 +42,16 @@ class cognitive_depth extends activity_base {
      *
      * If there is a corresponding '_help' string this will be shown as well.
      *
-     * @return object
+     * @return lang_string
      */
-    public static function get_name() : \lang_string {
-        return new \lang_string('indicator:cognitivedepth', 'mod_bigbluebuttonbn');
+    public static function get_name(): lang_string {
+        return new lang_string('indicator:cognitivedepth', 'mod_bigbluebuttonbn');
     }
 
     /**
      * Returns the indicator type.
      *
-     * @return integer
+     * @return string
      */
     public function get_indicator_type() {
         return self::INDICATOR_COGNITIVE;
@@ -61,9 +62,9 @@ class cognitive_depth extends activity_base {
      *
      * @param cm_info $cm
      *
-     * @return integer
+     * @return int
      */
-    public function get_cognitive_depth_level(\cm_info $cm) {
+    public function get_cognitive_depth_level(cm_info $cm) {
         return self::COGNITIVE_LEVEL_4;
     }
 }

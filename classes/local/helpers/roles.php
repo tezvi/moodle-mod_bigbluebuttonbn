@@ -21,18 +21,16 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @author    Laurent David  (laurent [at] call-learning [dt] fr)
  */
+
 namespace mod_bigbluebuttonbn\local\helpers;
 
 use cache;
 use cache_store;
-use coding_exception;
 use context;
 use context_course;
-use mod_bigbluebuttonbn\local\bbb_constants;
-use mod_bigbluebuttonbn\local\bigbluebutton;
-use moodle_exception;
-
-defined('MOODLE_INTERNAL') || die();
+use mod_bigbluebuttonbn\instance;
+use mod_bigbluebuttonbn\local\proxy\bigbluebutton_proxy;
+use stdClass;
 
 /**
  * Utility class for all roles routines helper
@@ -43,15 +41,21 @@ defined('MOODLE_INTERNAL') || die();
  */
 class roles {
 
+    /** @var int The bigbluebutton viewer role */
+    public const ROLE_VIEWER = 'viewer';
+
+    /** @var string The bigbluebutton moderator role */
+    public const ROLE_MODERATOR = 'moderator';
+
     /**
      * Returns user roles in a context.
      *
-     * @param object $context
-     * @param integer $userid
+     * @param context $context
+     * @param int $userid
      *
      * @return array $userroles
      */
-    public static function bigbluebuttonbn_get_user_roles($context, $userid) {
+    public static function get_user_roles(context $context, int $userid) {
         global $DB;
         $userroles = get_user_roles($context, $userid);
         if ($userroles) {
@@ -69,9 +73,9 @@ class roles {
      *
      * @return array
      */
-    public static function bigbluebuttonbn_get_guest_role() {
+    protected static function get_guest_role() {
         $guestrole = get_guest_role();
-        return array($guestrole->id => $guestrole);
+        return [$guestrole->id => $guestrole];
     }
 
     /**
@@ -80,10 +84,8 @@ class roles {
      * @param context_course $context
      * @param null $bbactivity
      * @return array $users
-     * @throws coding_exception
-     * @throws moodle_exception
      */
-    public static function bigbluebuttonbn_get_users_select(context_course $context, $bbactivity = null) {
+    public static function get_users_array(context_course $context, $bbactivity = null) {
         // CONTRIB-7972, check the group of current user and course group mode.
         $groups = null;
         $users = (array) get_enrolled_users($context, '', 0, 'u.*', null, 0, 0, true);
@@ -104,20 +106,36 @@ class roles {
         }
         return array_map(
             function($u) {
-                return array('id' => $u->id, 'name' => fullname($u));
+                return ['id' => $u->id, 'name' => fullname($u)];
             },
             $users);
     }
 
     /**
+     * Can do some administration in this course, likely manage recordings
+     *
+     * @param int $courseid
+     * @param string $capability
+     */
+    public static function has_capability_in_course(int $courseid, string $capability) {
+        global $DB;
+        if (empty($courseid) || $DB->record_exists('course', ['id' => $courseid])) {
+            return has_capability('moodle/site:config', \context_system::instance());
+        }
+
+        $coursecontext = context_course::instance($courseid);
+        return has_capability($capability, $coursecontext);
+    }
+
+    /**
      * Returns an array containing all the roles in a context.
      *
-     * @param context $context
-     * @param bool $onlyviewableroles
+     * @param context|null $context $context
+     * @param bool|null $onlyviewableroles
      *
      * @return array $roles
      */
-    public static function bigbluebuttonbn_get_roles(context $context = null, bool $onlyviewableroles = true) {
+    public static function get_roles(?context $context = null, ?bool $onlyviewableroles = true) {
         global $CFG;
 
         if ($onlyviewableroles == true && $CFG->branch >= 35) {
@@ -138,23 +156,23 @@ class roles {
     /**
      * Returns an array containing all the roles in a context wrapped for html select element.
      *
-     * @param context $context
+     * @param context|null $context $context
      * @param bool $onlyviewableroles
      *
      * @return array $users
      */
-    public static function bigbluebuttonbn_get_roles_select(context $context = null, bool $onlyviewableroles = true) {
+    protected static function get_roles_select(context $context = null, bool $onlyviewableroles = true) {
         global $CFG;
 
         if ($onlyviewableroles == true && $CFG->branch >= 35) {
             $roles = (array) get_viewable_roles($context);
             foreach ($roles as $key => $value) {
-                $roles[$key] = array('id' => $key, 'name' => $value);
+                $roles[$key] = ['id' => $key, 'name' => $value];
             }
         } else {
             $roles = (array) role_get_names($context);
             foreach ($roles as $key => $value) {
-                $roles[$key] = array('id' => $value->id, 'name' => $value->localname);
+                $roles[$key] = ['id' => $value->id, 'name' => $value->localname];
             }
         }
 
@@ -166,9 +184,9 @@ class roles {
      *
      * @param string|integer $id
      *
-     * @return object $role
+     * @return stdClass $role
      */
-    public static function bigbluebuttonbn_get_role($id) {
+    protected static function get_role($id): stdClass {
         $roles = (array) role_get_names();
         if (is_numeric($id) && isset($roles[$id])) {
             return (object) $roles[$id];
@@ -184,40 +202,40 @@ class roles {
      * Returns an array to populate a list of participants used in mod_form.js.
      *
      * @param context $context
-     * @param null|object $bbactivity
+     * @param null|stdClass $bbactivity
      * @return array $data
      */
-    public static function bigbluebuttonbn_get_participant_data($context, $bbactivity = null) {
-        $data = array(
-            'all' => array(
+    public static function get_participant_data(context $context, ?stdClass $bbactivity = null) {
+        $data = [
+            'all' => [
                 'name' => get_string('mod_form_field_participant_list_type_all', 'bigbluebuttonbn'),
                 'children' => []
-            ),
-        );
-        $data['role'] = array(
+            ],
+        ];
+        $data['role'] = [
             'name' => get_string('mod_form_field_participant_list_type_role', 'bigbluebuttonbn'),
-            'children' => self::bigbluebuttonbn_get_roles_select($context, true)
-        );
-        $data['user'] = array(
+            'children' => self::get_roles_select($context, true)
+        ];
+        $data['user'] = [
             'name' => get_string('mod_form_field_participant_list_type_user', 'bigbluebuttonbn'),
-            'children' => self::bigbluebuttonbn_get_users_select($context, $bbactivity),
-        );
+            'children' => self::get_users_array($context, $bbactivity),
+        ];
         return $data;
     }
 
     /**
      * Returns an array to populate a list of participants used in mod_form.php.
      *
-     * @param object $bigbluebuttonbn
+     * @param stdClass|null $bigbluebuttonbn
      * @param context $context
      *
      * @return array
      */
-    public static function bigbluebuttonbn_get_participant_list($bigbluebuttonbn, $context) {
+    public static function get_participant_list(?stdClass $bigbluebuttonbn, context $context): array {
         global $USER;
         if ($bigbluebuttonbn == null) {
-            return self::bigbluebuttonbn_get_participant_rules_encoded(
-                self::bigbluebuttonbn_get_participant_list_default($context, $USER->id)
+            return self::get_participant_rules_encoded(
+                self::get_participant_list_default($context, $USER->id)
             );
         }
         if (empty($bigbluebuttonbn->participants)) {
@@ -225,42 +243,42 @@ class roles {
         }
         $rules = json_decode($bigbluebuttonbn->participants, true);
         if (empty($rules)) {
-            $rules = self::bigbluebuttonbn_get_participant_list_default($context,
-                bigbluebutton::bigbluebuttonbn_instance_ownerid($bigbluebuttonbn));
+            $rules = self::get_participant_list_default($context,
+                bigbluebutton_proxy::get_instance_ownerid($bigbluebuttonbn));
         }
-        return self::bigbluebuttonbn_get_participant_rules_encoded($rules);
+        return self::get_participant_rules_encoded($rules);
     }
 
     /**
      * Returns an array to populate a list of participants used in mod_form.php with default values.
      *
      * @param context $context
-     * @param integer $ownerid
+     * @param int $ownerid
      *
      * @return array
      */
-    public static function bigbluebuttonbn_get_participant_list_default($context, $ownerid = null) {
-        $participantlist = array();
-        $participantlist[] = array(
+    protected static function get_participant_list_default(context $context, ?int $ownerid = null) {
+        $participantlist = [];
+        $participantlist[] = [
             'selectiontype' => 'all',
             'selectionid' => 'all',
-            'role' => bbb_constants::BIGBLUEBUTTONBN_ROLE_VIEWER,
-        );
+            'role' => self::ROLE_VIEWER,
+        ];
         $defaultrules = explode(',', \mod_bigbluebuttonbn\local\config::get('participant_moderator_default'));
         foreach ($defaultrules as $defaultrule) {
             if ($defaultrule == '0') {
                 if (!empty($ownerid) && is_enrolled($context, $ownerid)) {
-                    $participantlist[] = array(
+                    $participantlist[] = [
                         'selectiontype' => 'user',
                         'selectionid' => (string) $ownerid,
-                        'role' => bbb_constants::BIGBLUEBUTTONBN_ROLE_MODERATOR);
+                        'role' => self::ROLE_MODERATOR];
                 }
                 continue;
             }
-            $participantlist[] = array(
+            $participantlist[] = [
                 'selectiontype' => 'role',
                 'selectionid' => $defaultrule,
-                'role' => bbb_constants::BIGBLUEBUTTONBN_ROLE_MODERATOR);
+                'role' => self::ROLE_MODERATOR];
         }
         return $participantlist;
     }
@@ -272,12 +290,12 @@ class roles {
      *
      * @return array
      */
-    public static function bigbluebuttonbn_get_participant_rules_encoded($rules) {
+    protected static function get_participant_rules_encoded(array $rules): array {
         foreach ($rules as $key => $rule) {
             if ($rule['selectiontype'] !== 'role' || is_numeric($rule['selectionid'])) {
                 continue;
             }
-            $role = self::bigbluebuttonbn_get_role($rule['selectionid']);
+            $role = self::get_role($rule['selectionid']);
             if ($role == null) {
                 unset($rules[$key]);
                 continue;
@@ -293,7 +311,7 @@ class roles {
      *
      * @return array
      */
-    public static function bigbluebuttonbn_get_participant_selection_data() {
+    public static function get_participant_selection_data(): array {
         return [
             'type_options' => [
                 'all' => get_string('mod_form_field_participant_list_type_all', 'bigbluebuttonbn'),
@@ -311,38 +329,42 @@ class roles {
      *
      * @param context $context
      * @param array $participantlist
-     * @param integer $userid
+     * @param int $userid
      *
-     * @return boolean
+     * @return bool
      */
-    public static function bigbluebuttonbn_is_moderator($context, $participantlist, $userid = null) {
+    public static function is_moderator(context $context, array $participantlist, ?int $userid = null): bool {
         global $USER;
+        // If an admin, then also a moderator.
+        if (has_capability('moodle/site:config', $context)) {
+            return true;
+        }
         if (!is_array($participantlist)) {
             return false;
         }
         if (empty($userid)) {
             $userid = $USER->id;
         }
-        $userroles = self::bigbluebuttonbn_get_guest_role();
+        $userroles = self::get_guest_role();
         if (!isguestuser()) {
-            $userroles = self::bigbluebuttonbn_get_user_roles($context, $userid);
+            $userroles = self::get_user_roles($context, $userid);
         }
-        return self::bigbluebuttonbn_is_moderator_validator($participantlist, $userid, $userroles);
+        return self::is_moderator_validator($participantlist, $userid, $userroles);
     }
 
     /**
      * Iterates participant list rules to evaluate if a user is moderator.
      *
      * @param array $participantlist
-     * @param integer $userid
+     * @param int $userid
      * @param array $userroles
      *
-     * @return boolean
+     * @return bool
      */
-    public static function bigbluebuttonbn_is_moderator_validator($participantlist, $userid, $userroles) {
+    protected static function is_moderator_validator(array $participantlist, int $userid, array $userroles): bool {
         // Iterate participant rules.
         foreach ($participantlist as $participant) {
-            if (self::bigbluebuttonbn_is_moderator_validate_rule($participant, $userid, $userroles)) {
+            if (self::is_moderator_validate_rule($participant, $userid, $userroles)) {
                 return true;
             }
         }
@@ -352,14 +374,14 @@ class roles {
     /**
      * Evaluate if a user is moderator based on roles and a particular participation rule.
      *
-     * @param object $participant
-     * @param integer $userid
+     * @param array $participant
+     * @param int $userid
      * @param array $userroles
      *
-     * @return boolean
+     * @return bool
      */
-    public static function bigbluebuttonbn_is_moderator_validate_rule($participant, $userid, $userroles) {
-        if ($participant['role'] == bbb_constants::BIGBLUEBUTTONBN_ROLE_VIEWER) {
+    protected static function is_moderator_validate_rule(array $participant, int $userid, array $userroles): bool {
+        if ($participant['role'] == self::ROLE_VIEWER) {
             return false;
         }
         // Validation for the 'all' rule.
@@ -374,7 +396,7 @@ class roles {
             return false;
         }
         // Validation for a 'role' rule.
-        $role = self::bigbluebuttonbn_get_role($participant['selectionid']);
+        $role = self::get_role($participant['selectionid']);
         if ($role != null && array_key_exists($role->id, $userroles)) {
             return true;
         }
@@ -389,7 +411,7 @@ class roles {
      *
      * @return void
      */
-    public static function bigbluebuttonbn_participant_joined($meetingid, $ismoderator) {
+    public static function participant_joined(string $meetingid, bool $ismoderator): void {
         $cache = cache::make_from_params(cache_store::MODE_APPLICATION, 'mod_bigbluebuttonbn', 'meetings_cache');
         $result = $cache->get($meetingid);
         $meetinginfo = json_decode($result['meeting_info']);
@@ -397,26 +419,29 @@ class roles {
         if ($ismoderator) {
             $meetinginfo->moderatorCount += 1;
         }
-        $cache->set($meetingid, array('creation_time' => $result['creation_time'],
-            'meeting_info' => json_encode($meetinginfo)));
+        $cache->set($meetingid, ['creation_time' => $result['creation_time'],
+            'meeting_info' => json_encode($meetinginfo)]);
     }
 
     /**
      * Helper function returns a list of courses a user has access to, wrapped in an array that can be used
      * by a html select.
      *
-     * @param array $bbbsession
-     *
+     * @param instance $instance
      * @return array
      */
-    public static function bigbluebuttonbn_import_get_courses_for_select(array $bbbsession) {
-        if ($bbbsession['administrator']) {
+    public static function import_get_courses_for_select(instance $instance): array {
+        if ($instance->is_admin()) {
             $courses = get_courses('all', 'c.fullname ASC');
             // It includes the name of the site as a course (category 0), so remove the first one.
             unset($courses['1']);
         } else {
-            $courses = enrol_get_users_courses($bbbsession['userID'], false, 'id,shortname,fullname');
+            $courses = enrol_get_users_courses($instance->get_user_id(), false, 'id,shortname,fullname');
         }
+        $courses = array_filter($courses, function($course) {
+            $modules = get_fast_modinfo($course->id);
+            return !empty($modules->instances['bigbluebuttonbn']);
+        });
         $coursesforselect = [];
         foreach ($courses as $course) {
             $coursesforselect[$course->id] = $course->fullname . " (" . $course->shortname . ")";

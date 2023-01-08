@@ -24,9 +24,6 @@
  */
 namespace mod_bigbluebuttonbn\privacy;
 
-defined('MOODLE_INTERNAL') || die();
-global $CFG;
-
 use context_module;
 use core_privacy\local\metadata\collection;
 use core_privacy\local\request\approved_contextlist;
@@ -40,22 +37,9 @@ use core_privacy\local\request\userlist;
  * @copyright 2018 - present, Blindside Networks Inc
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @author    Jesus Federico  (jesus [at] blindsidenetworks [dt] com)
+ * @covers \mod_bigbluebuttonbn\privacy\provider
  */
 class provider_test extends \core_privacy\tests\provider_testcase {
-    /**
-     * Setup Course
-     */
-
-
-    /**
-     * Clean the temporary mocked up recordings
-     *
-     * @throws coding_exception
-     */
-    public function tearDown(): void {
-        parent::tearDown();
-        $this->getDataGenerator()->get_plugin_generator('mod_bigbluebuttonbn')->bigbluebuttonbn_clean_recordings_array_fetch();
-    }
 
     /**
      * Test for provider::get_metadata().
@@ -66,13 +50,16 @@ class provider_test extends \core_privacy\tests\provider_testcase {
         $collection = new collection('mod_bigbluebuttonbn');
         $newcollection = provider::get_metadata($collection);
         $itemcollection = $newcollection->get_collection();
-        $this->assertCount(3, $itemcollection);
+        $this->assertCount(4, $itemcollection);
 
         $instancetable = array_shift($itemcollection);
         $this->assertEquals('bigbluebuttonbn', $instancetable->get_name());
 
         $instancelogstable = array_shift($itemcollection);
         $this->assertEquals('bigbluebuttonbn_logs', $instancelogstable->get_name());
+
+        $recordings = array_shift($itemcollection);
+        $this->assertEquals('bigbluebuttonbn_recordings', $recordings->get_name());
 
         $bigbluebuttonserver = array_shift($itemcollection);
         $this->assertEquals('bigbluebutton', $bigbluebuttonserver->get_name());
@@ -106,7 +93,7 @@ class provider_test extends \core_privacy\tests\provider_testcase {
         $course = $e['course'];
 
         // Another bigbluebuttonbn activity that has no user activity.
-        $this->getDataGenerator()->create_module('bigbluebuttonbn', array('course' => $course));
+        $this->getDataGenerator()->create_module('bigbluebuttonbn', ['course' => $course]);
 
         // Create a user which will make a submission.
         $user = $this->getDataGenerator()->create_user();
@@ -280,14 +267,14 @@ class provider_test extends \core_privacy\tests\provider_testcase {
      * @return array $e
      */
     protected function get_bigbluebuttonbn_environemnt() {
-        $e = array();
+        $e = [];
 
         // Create a course.
         $e['course'] = $this->getDataGenerator()->create_course();
 
         // Create a bigbluebuttonbn instance.
         $e['instance'] = $this->getDataGenerator()->create_module('bigbluebuttonbn',
-            array('course' => $e['course']->id));
+            ['course' => $e['course']->id]);
 
         // Create users that will use the bigbluebuttonbn instance.
         $e['users'][] = $this->getDataGenerator()->create_user();

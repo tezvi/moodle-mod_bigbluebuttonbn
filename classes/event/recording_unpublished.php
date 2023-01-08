@@ -14,32 +14,20 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace mod_bigbluebuttonbn\event;
+
 /**
  * The mod_bigbluebuttonbn recording unpublished event.
  *
  * @package   mod_bigbluebuttonbn
  * @copyright 2010 onwards, Blindside Networks Inc
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @author    Jesus Federico  (jesus [at] blindsidenetworks [dt] com)
  */
-
-namespace mod_bigbluebuttonbn\event;
-
-defined('MOODLE_INTERNAL') || die();
-
-/**
- * The mod_bigbluebuttonbn recording unpublished event (triggered when a recording is unpublished).
- *
- * @package   mod_bigbluebuttonbn
- * @copyright 2010 onwards, Blindside Networks Inc
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-class recording_unpublished extends base
-{
+class recording_unpublished extends base {
     /**
      * Init method.
      * @param string $crud
-     * @param integer $edulevel
+     * @param int $edulevel
      */
     protected function init($crud = 'r', $edulevel = self::LEVEL_OTHER) {
         parent::init($crud, $edulevel);
@@ -59,9 +47,9 @@ class recording_unpublished extends base
     /**
      * Return objectid mapping.
      *
-     * @return string
+     * @return array
      */
     public static function get_objectid_mapping() {
-        return array('db' => 'bigbluebuttonbn', 'restore' => 'bigbluebuttonbn');
+        return ['db' => 'bigbluebuttonbn', 'restore' => 'bigbluebuttonbn'];
     }
 }

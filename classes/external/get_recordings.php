@@ -14,34 +14,23 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * BigBlueButtonBN internal API for recordings
- *
- * @package   mod_bigbluebuttonbn
- * @category  external
- * @copyright 2018 onwards, Blindside Networks Inc
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace mod_bigbluebuttonbn\external;
 
-use context_course;
-use context_module;
 use external_api;
-use external_description;
 use external_function_parameters;
 use external_multiple_structure;
 use external_single_structure;
 use external_value;
 use external_warnings;
-use invalid_parameter_exception;
-use mod_bigbluebuttonbn\local\bigbluebutton;
-use mod_bigbluebuttonbn\local\broker;
-use mod_bigbluebuttonbn\local\config;
-use mod_bigbluebuttonbn\local\helpers\logs;
-use mod_bigbluebuttonbn\local\helpers\instance;
-use mod_bigbluebuttonbn\local\helpers\recording;
-use mod_bigbluebuttonbn\plugin;
+use mod_bigbluebuttonbn\instance;
+use mod_bigbluebuttonbn\local\bigbluebutton\recordings\recording_data;
+use mod_bigbluebuttonbn\local\proxy\bigbluebutton_proxy;
+use restricted_context_exception;
+
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->libdir . '/externallib.php');
 
 /**
  * External service to fetch a list of recordings from the BBB service.
@@ -59,161 +48,84 @@ class get_recordings extends external_api {
      */
     public static function execute_parameters(): external_function_parameters {
         return new external_function_parameters([
-            'bigbluebuttonbnid' => new external_value(PARAM_INT, 'bigbluebuttonbn instance id', VALUE_OPTIONAL),
-            'removeimportedid' => new external_value(PARAM_INT, 'Id of the other BBB already imported recordings', VALUE_OPTIONAL),
-            'tools' => new external_value(PARAM_RAW, 'a set of enablec tools', VALUE_OPTIONAL),
+            'bigbluebuttonbnid' => new external_value(PARAM_INT, 'bigbluebuttonbn instance id'),
+            'tools' => new external_value(PARAM_RAW, 'a set of enabled tools', VALUE_DEFAULT,
+                'protect,unprotect,publish,unpublish,delete'),
+            'groupid' => new external_value(PARAM_INT, 'Group ID', VALUE_DEFAULT, null),
         ]);
     }
 
     /**
      * Get a list of recordings
      *
-     * @param int $bigbluebuttonbnid the bigbluebuttonbn instance id
-     * @param int $removeimportedid the removeimportedid instance id
-     * @param string $tools
+     * @param int $bigbluebuttonbnid the bigbluebuttonbn instance id to which the recordings are referred.
+     * @param string|null $tools
+     * @param int|null $groupid
      * @return array of warnings and status result
-     * @throws \coding_exception
-     * @throws \dml_exception
-     * @throws \moodle_exception
-     * @throws \restricted_context_exception
-     * @throws invalid_parameter_exception
+     * @throws \invalid_parameter_exception
+     * @throws restricted_context_exception
      */
-    public static function execute(int $bigbluebuttonbnid = 0, $removeimportedid = 0, $tools = 'protect,publish,delete'): array {
-        $warnings = [];
+    public static function execute(
+        int $bigbluebuttonbnid = 0,
+        ?string $tools = 'protect,unprotect,publish,unpublish,delete',
+        ?int $groupid = null
+    ): array {
+        global $USER;
+
+        $returnval = [
+            'status' => false,
+            'warnings' => [],
+        ];
 
         // Validate the bigbluebuttonbnid ID.
         [
             'bigbluebuttonbnid' => $bigbluebuttonbnid,
-            'removeimportedid' => $removeimportedid,
             'tools' => $tools,
+            'groupid' => $groupid,
         ] = self::validate_parameters(self::execute_parameters(), [
             'bigbluebuttonbnid' => $bigbluebuttonbnid,
-            'removeimportedid' => $removeimportedid,
             'tools' => $tools,
+            'groupid' => $groupid,
         ]);
 
+        $tools = explode(',', $tools ?? 'protect,unprotect,publish,unpublish,delete');
+
         // Fetch the session, features, and profile.
-        [
-            'bbbsession' => $bbbsession,
-            'context' => $context,
-            'enabledfeatures' => $enabledfeatures,
-            'typeprofiles' => $typeprofiles,
-        ] = instance::get_session_from_id($bigbluebuttonbnid);
-
-        if ($bigbluebuttonbnid === 0) {
-            throw new invalid_parameter_exception('Both BigbluebuttonBN and Course IDs are null, we can either
-            have one or the other but not both at the same time');
-        }
-        // Validate that the user has access to this activity.
-        self::validate_context($context);
-
-        $tools = explode(',', $tools);
-
-        // Fetch the list of recordings.
-        $recordings =
-            recording::bigbluebutton_get_recordings_for_table_view($bbbsession,
-                $enabledfeatures
-            );
-
-        if ($removeimportedid) {
-            $recordings = recording::bigbluebuttonbn_unset_existent_recordings_already_imported(
-                $recordings,
-                $bbbsession['course'],
-                $removeimportedid);
-        }
-
-        $tabledata = [
-            'activity' => \mod_bigbluebuttonbn\local\bigbluebutton::bigbluebuttonbn_view_get_activity_status($bbbsession),
-            'ping_interval' => (int) config::get('waitformoderator_ping_interval') * 1000,
-            'locale' => plugin::bigbluebuttonbn_get_localcode(),
-            'profile_features' => $typeprofiles[0]['features'],
-            'columns' => [],
-            'data' => '',
-        ];
-
-        $data = [];
-
-        // Build table content.
-        if (isset($recordings) && !array_key_exists('messageKey', $recordings)) {
-            // There are recordings for this meeting.
-            foreach ($recordings as $recording) {
-                $rowdata = recording::bigbluebuttonbn_get_recording_data_row($bbbsession, $recording, $tools);
-                if (!empty($rowdata)) {
-                    $data[] = $rowdata;
+        $instance = instance::get_from_instanceid($bigbluebuttonbnid);
+        if (!$instance) {
+            $returnval['warnings'][] = [
+                'item' => $bigbluebuttonbnid,
+                'warningcode' => 'nosuchinstance',
+                'message' => get_string('nosuchinstance', 'mod_bigbluebuttonbn',
+                    (object) ['id' => $bigbluebuttonbnid, 'entity' => 'bigbluebuttonbn'])
+            ];
+        } else {
+            $typeprofiles = bigbluebutton_proxy::get_instance_type_profiles();
+            $profilefeature = $typeprofiles[$instance->get_type()]['features'];
+            $showrecordings = in_array('all', $profilefeature) || in_array('showrecordings', $profilefeature);
+            if ($showrecordings) {
+                $context = $instance->get_context();
+                // Validate that the user has access to this activity.
+                self::validate_context($context);
+                if (!$instance->user_has_group_access($USER, $groupid)) {
+                    new restricted_context_exception();
                 }
+                if ($groupid) {
+                    $instance->set_group_id($groupid);
+                }
+                $recordings = $instance->get_recordings([]);
+                $tabledata = recording_data::get_recording_table($recordings, $tools, $instance);
+
+                $returnval['tabledata'] = $tabledata;
+                $returnval['status'] = true;
+            } else {
+                $returnval['warnings'][] = [
+                    'item' => $bigbluebuttonbnid,
+                    'warningcode' => 'instanceprofilewithoutrecordings',
+                    'message' => get_string('instanceprofilewithoutrecordings', 'mod_bigbluebuttonbn')
+                ];
             }
         }
-
-        $columns = [
-            [
-                'key' => 'playback',
-                'label' => get_string('view_recording_playback', 'bigbluebuttonbn'),
-                'width' => '125px',
-                'type' => 'html',
-                'allowHTML' => true,
-            ],
-            [
-                'key' => 'recording',
-                'label' => get_string('view_recording_name', 'bigbluebuttonbn'),
-                'width' => '125px',
-                'type' => 'html',
-                'allowHTML' => true,
-            ],
-            [
-                'key' => 'description',
-                'label' => get_string('view_recording_description', 'bigbluebuttonbn'),
-                'sortable' => true,
-                'width' => '250px',
-                'type' => 'html',
-                'allowHTML' => true,
-            ],
-        ];
-
-        // Initialize table headers.
-        if (recording::bigbluebuttonbn_get_recording_data_preview_enabled($bbbsession)) {
-            $columns[] = [
-                'key' => 'preview',
-                'label' => get_string('view_recording_preview', 'bigbluebuttonbn'),
-                'width' => '250px',
-                'type' => 'html',
-                'allowHTML' => true,
-            ];
-        }
-
-        $columns[] = [
-            'key' => 'date',
-            'label' => get_string('view_recording_date', 'bigbluebuttonbn'),
-            'sortable' => true,
-            'width' => '225px',
-            'type' => 'html',
-            'allowHTML' => true,
-        ];
-        $columns[] = [
-            'key' => 'duration',
-            'label' => get_string('view_recording_duration', 'bigbluebuttonbn'),
-            'width' => '50px',
-            'allowHTML' => false,
-            'sortable' => true,
-        ];
-        if ($bbbsession['managerecordings']) {
-            $columns[] = [
-                'key' => 'actionbar',
-                'label' => get_string('view_recording_actionbar', 'bigbluebuttonbn'),
-                'width' => '120px',
-                'type' => 'html',
-                'allowHTML' => true,
-            ];
-        }
-
-        $tabledata['columns'] = $columns;
-        $tabledata['data'] = json_encode($data);
-
-        $returnval = [
-            'status' => true,
-            'tabledata' => $tabledata,
-            'warnings' => $warnings,
-        ];
-
         return $returnval;
     }
 
@@ -241,7 +153,7 @@ class get_recordings extends external_api {
                     'allowHTML' => new external_value(PARAM_BOOL, 'Whether this column contains HTML', VALUE_OPTIONAL, false),
                 ])),
                 'data' => new external_value(PARAM_RAW), // For now it will be json encoded.
-            ]),
+            ], '', VALUE_OPTIONAL),
             'warnings' => new external_warnings()
         ]);
     }

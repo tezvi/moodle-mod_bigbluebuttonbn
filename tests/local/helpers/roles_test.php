@@ -14,23 +14,10 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * BBB Library tests class.
- *
- * @package   mod_bigbluebuttonbn
- * @copyright 2018 - present, Blindside Networks Inc
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @author    Laurent David (laurent@call-learning.fr)
- */
 namespace mod_bigbluebuttonbn\local\helpers;
-defined('MOODLE_INTERNAL') || die();
 
 use context_course;
-use core_tag_tag;
-use mod_bigbluebuttonbn\local\bbb_constants;
-
-global $CFG;
-require_once($CFG->dirroot . '/mod/bigbluebuttonbn/tests/helpers.php');
+use mod_bigbluebuttonbn\test\testcase_helper_trait;
 
 /**
  * BBB Library tests class.
@@ -39,21 +26,21 @@ require_once($CFG->dirroot . '/mod/bigbluebuttonbn/tests/helpers.php');
  * @copyright 2018 - present, Blindside Networks Inc
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @author    Laurent David (laurent@call-learning.fr)
+ * @covers \mod_bigbluebuttonbn\local\helpers\roles
+ * @coversDefaultClass \mod_bigbluebuttonbn\local\helpers\roles
  */
-class roles_test extends \bbb_simple_test {
+class roles_test extends \advanced_testcase {
+    use testcase_helper_trait;
+
     /**
      * Test select separate group prevent all
      *
-     * @throws \coding_exception
-     * @throws \dml_exception
-     * @throws \moodle_exception
      */
-    public function test_bigbluebuttonbn_get_users_select_separate_groups_prevent_all() {
+    public function test_get_users_select_separate_groups_prevent_all() {
         $this->resetAfterTest();
         $numstudents = 12;
         $numteachers = 3;
         $groupsnum = 3;
-
         list($course, $groups, $students, $teachers, $bbactivity, $roleids) =
             $this->setup_course_students_teachers(
                 (object) ['enablecompletion' => true, 'groupmode' => strval(SEPARATEGROUPS), 'groupmodeforce' => 1],
@@ -62,19 +49,19 @@ class roles_test extends \bbb_simple_test {
         // Prevent access all groups.
         role_change_permission($roleids['teacher'], $context, 'moodle/site:accessallgroups', CAP_PREVENT);
         $this->setUser($teachers[0]);
-        $users = roles::bigbluebuttonbn_get_users_select($context, $bbactivity);
+        $users = roles::get_users_array($context, $bbactivity);
         $this->assertCount(($numstudents + $numteachers) / $groupsnum, $users);
         $this->setUser($teachers[1]);
-        $users = roles::bigbluebuttonbn_get_users_select($context, $bbactivity);
+        $users = roles::get_users_array($context, $bbactivity);
         $this->assertCount(($numstudents + $numteachers) / $groupsnum, $users);
         $this->setUser($teachers[2]);
-        $users = roles::bigbluebuttonbn_get_users_select($context, $bbactivity);
+        $users = roles::get_users_array($context, $bbactivity);
         $this->assertCount(($numstudents + $numteachers) / $groupsnum, $users);
         $course->groupmode = strval(SEPARATEGROUPS);
         $course->groupmodeforce = "0";
         update_course($course);
         $this->setUser($teachers[2]);
-        $users = roles::bigbluebuttonbn_get_users_select($context, $bbactivity);
+        $users = roles::get_users_array($context, $bbactivity);
         $this->assertCount($numstudents + $numteachers, $users);
 
     }
@@ -82,33 +69,26 @@ class roles_test extends \bbb_simple_test {
     /**
      * Test select separate groups
      *
-     * @throws \coding_exception
-     * @throws \dml_exception
-     * @throws \moodle_exception
      */
-    public function test_bigbluebuttonbn_get_users_select_separate_groups() {
+    public function test_get_users_select_separate_groups() {
         $this->resetAfterTest();
         $numstudents = 12;
         $numteachers = 3;
         $groupsnum = 3;
         list($course, $groups, $students, $teachers, $bbactivity, $roleids) =
             $this->setup_course_students_teachers(
-                (object)['enablecompletion' => true, 'groupmode' => strval(VISIBLEGROUPS), 'groupmodeforce' => 1],
+                (object) ['enablecompletion' => true, 'groupmode' => strval(VISIBLEGROUPS), 'groupmodeforce' => 1],
                 $numstudents, $numteachers, $groupsnum);
 
         $context = context_course::instance($course->id);
         $this->setUser($teachers[0]);
-        $users = roles::bigbluebuttonbn_get_users_select($context, $bbactivity);
+        $users = roles::get_users_array($context, $bbactivity);
         $this->assertCount($numstudents + $numteachers, $users);
         $this->setUser($teachers[1]);
-        $users = roles::bigbluebuttonbn_get_users_select($context, $bbactivity);
+        $users = roles::get_users_array($context, $bbactivity);
         $this->assertCount($numstudents + $numteachers, $users);
         $this->setUser($teachers[1]);
-        $users = roles::bigbluebuttonbn_get_users_select($context, $bbactivity);
+        $users = roles::get_users_array($context, $bbactivity);
         $this->assertCount($numstudents + $numteachers, $users);
     }
-
-
 }
-
-

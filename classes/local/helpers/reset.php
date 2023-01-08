@@ -21,12 +21,13 @@
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @author    Laurent David  (laurent [at] call-learning [dt] fr)
  */
+
 namespace mod_bigbluebuttonbn\local\helpers;
+
 use context_module;
 use core_tag_tag;
 use mod_bigbluebuttonbn\local\config;
-
-defined('MOODLE_INTERNAL') || die();
+use mod_bigbluebuttonbn\recording;
 
 /**
  * Utility class for resetting instance routines helper
@@ -38,43 +39,37 @@ defined('MOODLE_INTERNAL') || die();
 class reset {
 
     /**
-     * Used by the reset_course_userdata for deleting bigbluebuttonbn_logs linked to bigbluebuttonbn instances in the course.
+     * Used by the reset_course_userdata for deleting recordings
      *
-     * @param string $courseid
-     * @return bool status array
-     * @throws \dml_exception
-     */
-    public static function bigbluebuttonbn_reset_logs($courseid) {
-        global $DB;
-        // Remove all the logs.
-        return $DB->delete_records('bigbluebuttonbn_logs', array('courseid' => $courseid));
-    }
-
-    /**
-     * Used by the reset_course_userdata for deleting recordings in a BBB server linked to bigbluebuttonbn instances in the course.
+     * This will delete recordings in the database and not in the remote BBB server.
      *
-     * @param string $courseid
-     * @return array status array
+     * @param int $courseid
      */
-    public static function bigbluebuttonbn_reset_recordings($courseid) {
+    public static function reset_recordings(int $courseid): void {
         // Criteria for search : courseid or bigbluebuttonbn=null or subset=false or includedeleted=true.
-        $recordings = recording::bigbluebuttonbn_get_recordings($courseid, null, false, true);
-        // Remove all the recordings.
-        recording::bigbluebuttonbn_delete_recordings(implode(",", array_keys($recordings)));
+        $recordings = recording::get_recordings_for_course(
+            $courseid,
+            [], // Exclude itself.
+            false,
+            true
+        );
+        if ($recordings) {
+            // Remove all the recordings.
+            foreach ($recordings as $recording) {
+                $recording->delete();
+            }
+        }
     }
 
     /**
      * Used by the reset_course_userdata for deleting tags linked to bigbluebuttonbn instances in the course.
      *
-     * @param array $courseid
-     * @return array status array
-     * @throws \coding_exception
-     * @throws \dml_exception
+     * @param int $courseid
      */
-    public static function bigbluebuttonbn_reset_tags($courseid) {
+    public static function reset_tags(int $courseid): void {
         global $DB;
         // Remove all the tags linked to the room/activities in this course.
-        if ($bigbluebuttonbns = $DB->get_records('bigbluebuttonbn', array('course' => $courseid))) {
+        if ($bigbluebuttonbns = $DB->get_records('bigbluebuttonbn', ['course' => $courseid])) {
             foreach ($bigbluebuttonbns as $bigbluebuttonbn) {
                 if (!$cm = get_coursemodule_from_instance('bigbluebuttonbn', $bigbluebuttonbn->id, $courseid)) {
                     continue;
@@ -89,12 +84,12 @@ class reset {
      * Used by the reset_course_userdata for deleting events linked to bigbluebuttonbn instances in the course.
      *
      * @param string $courseid
-     * @return bool status array
+     * @return bool status
      */
-    public static function bigbluebuttonbn_reset_events($courseid) {
+    public static function reset_events($courseid) {
         global $DB;
         // Remove all the events.
-        return $DB->delete_records('event', array('modulename' => 'bigbluebuttonbn', 'courseid' => $courseid));
+        return $DB->delete_records('event', ['modulename' => 'bigbluebuttonbn', 'courseid' => $courseid]);
     }
 
     /**
@@ -103,10 +98,10 @@ class reset {
      * @param string $item
      * @return array status array
      */
-    public static function bigbluebuttonbn_reset_getstatus($item) {
-        return array('component' => get_string('modulenameplural', 'bigbluebuttonbn')
-        , 'item' => get_string("removed{$item}", 'bigbluebuttonbn')
-        , 'error' => false);
+    public static function reset_getstatus(string $item): array {
+        return ['component' => get_string('modulenameplural', 'bigbluebuttonbn'),
+            'item' => get_string("removed{$item}", 'bigbluebuttonbn'),
+            'error' => false];
     }
 
     /**
@@ -114,12 +109,23 @@ class reset {
      *
      * @return array
      */
-    public static function bigbluebuttonbn_reset_course_items() {
-        $items = array("events" => 0, "tags" => 0, "logs" => 0);
+    public static function reset_course_items(): array {
+        $items = ["events" => 0, "tags" => 0, "logs" => 0];
         // Include recordings only if enabled.
         if ((boolean) config::recordings_enabled()) {
             $items["recordings"] = 0;
         }
         return $items;
+    }
+
+    /**
+     * Reset logs for each BBB instance of this course
+     *
+     * @param int $courseid
+     * @return bool status
+     */
+    public static function reset_logs(int $courseid) {
+        global $DB;
+        return $DB->delete_records('bigbluebuttonbn_logs', ['courseid' => $courseid]);
     }
 }

@@ -23,13 +23,10 @@
  * @author    Laurent David (laurent@call-learning.fr)
  */
 namespace mod_bigbluebuttonbn\local\helpers;
-defined('MOODLE_INTERNAL') || die();
 
 use core_tag_tag;
-use mod_bigbluebuttonbn\local\bbb_constants;
-
-global $CFG;
-require_once($CFG->dirroot . '/mod/bigbluebuttonbn/tests/helpers.php');
+use mod_bigbluebuttonbn\instance;
+use mod_bigbluebuttonbn\test\testcase_helper_trait;
 
 /**
  * BBB Library tests class.
@@ -38,40 +35,42 @@ require_once($CFG->dirroot . '/mod/bigbluebuttonbn/tests/helpers.php');
  * @copyright 2018 - present, Blindside Networks Inc
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @author    Laurent David (laurent@call-learning.fr)
+ * @coversDefaultClass \mod_bigbluebuttonbn\local\helpers\reset
+ * @covers \mod_bigbluebuttonbn\local\helpers\reset
  */
-class reset_test extends \bbb_simple_test {
-
+class reset_test extends \advanced_testcase {
+    use testcase_helper_trait;
     /**
      * Reset course item test
      */
-    public function test_bigbluebuttonbn_reset_course_items() {
+    public function test_reset_course_items() {
         global $CFG;
         $this->resetAfterTest();
         $CFG->bigbluebuttonbn_recordings_enabled = false;
-        $results = reset::bigbluebuttonbn_reset_course_items();
-        $this->assertEquals(array("events" => 0, "tags" => 0, "logs" => 0), $results);
+        $results = reset::reset_course_items();
+        $this->assertEquals(["events" => 0, "tags" => 0, "logs" => 0], $results);
         $CFG->bigbluebuttonbn_recordings_enabled = true;
-        $results = reset::bigbluebuttonbn_reset_course_items();
-        $this->assertEquals(array("events" => 0, "tags" => 0, "logs" => 0, "recordings" => 0), $results);
+        $results = reset::reset_course_items();
+        $this->assertEquals(["events" => 0, "tags" => 0, "logs" => 0, "recordings" => 0], $results);
     }
 
     /**
      * Reset get_status test
      */
-    public function test_bigbluebuttonbn_reset_getstatus() {
+    public function test_reset_getstatus() {
         $this->resetAfterTest();
-        $result = reset::bigbluebuttonbn_reset_getstatus('events');
-        $this->assertEquals(array(
+        $result = reset::reset_getstatus('events');
+        $this->assertEquals([
                 'component' => 'BigBlueButton',
                 'item' => 'Deleted events',
                 'error' => false,
-        ), $result);
+        ], $result);
     }
 
     /**
      * Reset event test
      */
-    public function test_bigbluebuttonbn_reset_events() {
+    public function test_reset_events() {
         global $DB;
         $this->resetAfterTest();
         $this->setAdminUser();
@@ -80,66 +79,50 @@ class reset_test extends \bbb_simple_test {
                 ['openingtime' => time()]
         );
         $formdata = $this->get_form_data_from_instance($bbactivity);
-        \mod_bigbluebuttonbn\local\helpers\instance::bigbluebuttonbn_process_post_save_event($formdata);
+        \mod_bigbluebuttonbn\local\helpers\mod_helper::process_post_save($formdata);
         $this->assertEquals(1, $DB->count_records(
                 'event',
-                array('modulename' => 'bigbluebuttonbn', 'courseid' => $this->course->id)));
-        reset::bigbluebuttonbn_reset_events($this->course->id);
+                ['modulename' => 'bigbluebuttonbn', 'courseid' => $this->get_course()->id]));
+        reset::reset_events($this->get_course()->id);
         $this->assertEquals(0, $DB->count_records(
                 'event',
-                array('modulename' => 'bigbluebuttonbn', 'courseid' => $this->course->id)));
+                ['modulename' => 'bigbluebuttonbn', 'courseid' => $this->get_course()->id]));
     }
 
     /**
      * Reset tags test
      */
-    public function test_bigbluebuttonbn_reset_tags() {
+    public function test_reset_tags() {
         $this->resetAfterTest();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance(null,
-                array('course' => $this->course->id),
+                ['course' => $this->get_course()->id],
                 ['visible' => true]
         );
         core_tag_tag::add_item_tag('mod_bigbluebuttonbn', 'bbitem', $bbactivity->id, $bbactivitycontext, 'newtag');
         $alltags = core_tag_tag::get_item_tags('mod_bigbluebuttonbn', 'bbitem', $bbactivity->id);
         $this->assertCount(1, $alltags);
-        reset::bigbluebuttonbn_reset_tags($this->course->id);
+        reset::reset_tags($this->get_course()->id);
         $alltags = core_tag_tag::get_item_tags('mod_bigbluebuttonbn', 'bbitem', $bbactivity->id);
         $this->assertCount(0, $alltags);
     }
 
     /**
-     * Reset logs test
+     * Reset recordings test
      */
-    public function test_bigbluebuttonbn_reset_logs() {
-        global $DB;
+    public function test_reset_recordings() {
+        $this->initialise_mock_server();
         $this->resetAfterTest();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance(null,
-                array('course' => $this->course->id),
-                ['visible' => true]
+            ['course' => $this->get_course()->id],
+            ['visible' => true]
         );
-
-        // User has already joined the meeting (there is log event BIGBLUEBUTTONBN_LOG_EVENT_JOIN already for this user).
-        $overrides = array('meetingid' => $bbactivity->meetingid);
-        $meta = '{"origin":0}';
-        logs::bigbluebuttonbn_log($bbactivity, bbb_constants::BIGBLUEBUTTONBN_LOG_EVENT_JOIN, $overrides, $meta);
-
-        reset::bigbluebuttonbn_reset_logs($this->course->id);
-        $this->assertEquals(0, $DB->count_records(
-                'bigbluebuttonbn_logs',
-                array('bigbluebuttonbnid' => $bbactivity->id, 'courseid' => $this->course->id)));
+        $instance = instance::get_from_instanceid($bbactivity->id);
+        $this->create_recordings_for_instance($instance, [
+            ['name' => 'Recording 1'],
+            ['name' => 'Recording 2'],
+        ]);
+        $this->assertCount(2, $instance->get_recordings());
+        reset::reset_recordings($this->get_course()->id);
+        $this->assertCount(0, $instance->get_recordings());
     }
-
-    /**
-     * Reset get_recordings test
-     */
-    public function test_bigbluebuttonbn_reset_recordings() {
-        $this->resetAfterTest();
-        // TODO complete this test.
-        $this->markTestSkipped(
-            'For now this test relies on an API call so we need to mock the API CALL.'
-        );
-    }
-
 }
-
-

@@ -23,14 +23,19 @@
  * @author    Laurent David (laurent@call-learning.fr)
  */
 
-use mod_bigbluebuttonbn\completion\custom_completion;
-use mod_bigbluebuttonbn\local\bbb_constants;
-use mod_bigbluebuttonbn\local\helpers\logs;
+namespace mod_bigbluebuttonbn;
+
+use calendar_event;
+use context_module;
+use mod_bigbluebuttonbn\test\testcase_helper_trait;
+use mod_bigbluebuttonbn_mod_form;
+use MoodleQuickForm;
+use navigation_node;
+use ReflectionClass;
+use stdClass;
 
 defined('MOODLE_INTERNAL') || die();
 global $CFG;
-
-require_once($CFG->dirroot . '/mod/bigbluebuttonbn/tests/helpers.php');
 require_once($CFG->dirroot . '/mod/bigbluebuttonbn/lib.php');
 
 /**
@@ -41,8 +46,14 @@ require_once($CFG->dirroot . '/mod/bigbluebuttonbn/lib.php');
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @author    Laurent David (laurent@call-learning.fr)
  */
-class lib_test extends \bbb_simple_test {
+class lib_test extends \advanced_testcase {
+    use testcase_helper_trait;
 
+    /**
+     * Check support
+     *
+     * @covers ::bigbluebuttonbn_supports
+     */
     public function test_bigbluebuttonbn_supports() {
         $this->resetAfterTest();
         $this->assertTrue(bigbluebuttonbn_supports(FEATURE_IDNUMBER));
@@ -50,35 +61,11 @@ class lib_test extends \bbb_simple_test {
         $this->assertFalse(bigbluebuttonbn_supports(FEATURE_GRADE_HAS_GRADE));
     }
 
-    public function test_bigbluebuttonbn_get_completion_state() {
-        $this->resetAfterTest();
-        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
-        $user = $this->generator->create_user();
-        $this->setUser($user);
-        $completion = new custom_completion($bbactivitycm, $user->id);
-        $result = $completion->get_overall_completion_state();
-        // No custom rules so complete.
-        $this->assertEquals(COMPLETION_COMPLETE, $result);
-
-        // Now with a custom rule.
-        list($bbactivitycontext, $bbactivitycm, $bbactivity) =
-            $this->create_instance(null);
-        $bbactivitycm->override_customdata('customcompletionrules', [
-            'completionengagementchats' => '1',
-            'completionattendance' => '1'
-        ]);
-        $completion = new custom_completion($bbactivitycm, $user->id);
-        $result = $completion->get_overall_completion_state();
-        $this->assertEquals(COMPLETION_INCOMPLETE, $result);
-        // Add a couple of fake logs.
-        $overrides = array('meetingid' => $bbactivity->meetingid);
-        $meta = '{"origin":0, "data": {"duration": 120, "engagement": {"chats": 2, "talks":2} }}';
-        logs::bigbluebuttonbn_log($bbactivity, bbb_constants::BIGBLUEBUTTON_LOG_EVENT_SUMMARY, $overrides, $meta);
-        logs::bigbluebuttonbn_log($bbactivity, bbb_constants::BIGBLUEBUTTON_LOG_EVENT_SUMMARY, $overrides, $meta);
-        $result = $completion->get_overall_completion_state();
-        $this->assertEquals(COMPLETION_COMPLETE, $result);
-    }
-
+    /**
+     * Check add instance
+     *
+     * @covers ::bigbluebuttonbn_add_instance
+     */
     public function test_bigbluebuttonbn_add_instance() {
         $this->resetAfterTest();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
@@ -87,6 +74,11 @@ class lib_test extends \bbb_simple_test {
         $this->assertNotNull($id);
     }
 
+    /**
+     * Check update instance
+     *
+     * @covers ::bigbluebuttonbn_update_instance
+     */
     public function test_bigbluebuttonbn_update_instance() {
         $this->resetAfterTest();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
@@ -95,51 +87,266 @@ class lib_test extends \bbb_simple_test {
         $this->assertTrue($result);
     }
 
+    /**
+     * Check delete instance
+     *
+     * @covers ::bigbluebuttonbn_delete_instance
+     */
     public function test_bigbluebuttonbn_delete_instance() {
         $this->resetAfterTest();
+        $this->initialise_mock_server();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
         $result = bigbluebuttonbn_delete_instance($bbactivity->id);
         $this->assertTrue($result);
     }
 
+    /**
+     * Check user outline page
+     *
+     * @covers ::bigbluebuttonbn_user_outline
+     */
     public function test_bigbluebuttonbn_user_outline() {
         $this->resetAfterTest();
-        $user = $this->generator->create_user();
+
+        $generator = $this->getDataGenerator();
+        $user = $generator->create_user();
         $this->setUser($user);
-        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
-        $result = bigbluebuttonbn_user_outline($this->course, $user, null, $bbactivity);
-        $this->assertEquals('', $result);
+
+        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance($this->get_course(),
+            ['completion' => 2, 'completionview' => 1]);
+        $result = bigbluebuttonbn_user_outline($this->get_course(), $user, $bbactivitycm, $bbactivity);
+        $this->assertEquals((object) ['info' => '', 'time' => 0], $result);
+
+        bigbluebuttonbn_view($bbactivity, $this->get_course(), $bbactivitycm, $bbactivitycontext);
+        $result = bigbluebuttonbn_user_outline($this->get_course(), $user, $bbactivitycm, $bbactivity);
+        $this->assertStringContainsString(get_string('report_room_view', 'mod_bigbluebuttonbn'), $result->info);
+    }
+
+    /**
+     * Check user completion
+     *
+     * @covers ::bigbluebuttonbn_user_complete
+     */
+    public function test_bigbluebuttonbn_user_complete() {
+        $this->initialise_mock_server();
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $user = $generator->create_and_enrol($this->get_course());
+        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance($this->get_course(),
+            ['completion' => 2, 'completionview' => 1]);
+        $this->setUser($user);
 
         // Now create a couple of logs.
-        $overrides = array('meetingid' => $bbactivity->meetingid);
-        $meta = '{"origin":0}';
-        logs::bigbluebuttonbn_log($bbactivity, bbb_constants::BIGBLUEBUTTONBN_LOG_EVENT_JOIN, $overrides, $meta);
-        logs::bigbluebuttonbn_log($bbactivity, bbb_constants::BIGBLUEBUTTONBN_LOG_EVENT_PLAYED, $overrides);
-        $result = bigbluebuttonbn_user_outline($this->course, $user, null, $bbactivity);
-        $this->assertMatchesRegularExpression('/.* has joined the session for 2 times/', $result);
+        bigbluebuttonbn_view($bbactivity, $this->get_course(), $bbactivitycm, $bbactivitycontext);
+        ob_start();
+        bigbluebuttonbn_user_complete($this->get_course(), $user, $bbactivitycm, $bbactivity);
+        $output = ob_get_contents();
+        ob_end_clean();
+        $this->assertStringContainsString(get_string('report_room_view', 'mod_bigbluebuttonbn'), $output);
     }
 
-    public function test_bigbluebuttonbn_user_complete() {
+    /**
+     * Check get recent activity
+     *
+     * @covers ::bigbluebuttonbn_get_recent_mod_activity
+     */
+    public function test_bigbluebuttonbn_get_recent_mod_activity() {
+        $this->initialise_mock_server();
         $this->resetAfterTest();
-        $user = $this->generator->create_user();
-        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
+
+        $generator = $this->getDataGenerator();
+        $user = $generator->create_and_enrol($this->get_course());
         $this->setUser($user);
-        $overrides = array('meetingid' => $bbactivity->meetingid);
-        $meta = '{"origin":0}';
-        logs::bigbluebuttonbn_log($bbactivity, bbb_constants::BIGBLUEBUTTONBN_LOG_EVENT_JOIN, $overrides, $meta);
-        logs::bigbluebuttonbn_log($bbactivity, bbb_constants::BIGBLUEBUTTONBN_LOG_EVENT_PLAYED, $overrides);
-        $result = bigbluebuttonbn_user_complete($this->course, $user, $bbactivity);
-        $this->assertEquals(2, $result);
+        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
+        // Now create a couple of logs.
+        $instance = instance::get_from_instanceid($bbactivity->id);
+        $recordings = $this->create_recordings_for_instance($instance, [['name' => "Pre-Recording 1"]]);
+        logger::log_meeting_joined_event($instance, 0);
+        logger::log_meeting_joined_event($instance, 0);
+        logger::log_recording_played_event($instance, $recordings[0]->id);
+
+        $activities = $this->prepare_for_recent_activity_array(0, $user->id, 0);
+        $this->assertCount(4, $activities);
+        $this->assertEquals(
+            ["Meeting joined", "Meeting joined", "Recording viewed"],
+            array_values(
+                array_filter(
+                    array_map(function($activity) {
+                        return $activity->eventname ?? "";
+                    }, $activities),
+                    function($e) {
+                        return !empty($e);
+                    }
+                )
+            )
+        );
+        $this->assertEquals("Pre-Recording 1", $activities[3]->content); // The recording view event should contain the name
+        // of the activity.
     }
 
+    /**
+     * Prepare the list of activities as is done in course recent activity
+     *
+     * @param int $date
+     * @param int $user
+     * @param int $group
+     * @return array|void
+     */
+    protected function prepare_for_recent_activity_array($date, $user, $group) {
+        // Same algorithm as in cource/recent.php, but stops at the first bbb activity.
+        $course = $this->get_course();
+        $modinfo = get_fast_modinfo($course->id);
+        $sections = array();
+        $index = 0;
+        foreach ($modinfo->get_section_info_all() as $i => $section) {
+            if (!empty($section->uservisible)) {
+                $sections[$i] = $section;
+            }
+        }
+        foreach ($sections as $sectionnum => $section) {
+
+            $activity = new stdClass();
+            $activity->type = 'section';
+            if ($section->section > 0) {
+                $activity->name = get_section_name($this->get_course(), $section);
+            } else {
+                $activity->name = '';
+            }
+
+            $activity->visible = $section->visible;
+            $activities[$index++] = $activity;
+
+            if (empty($modinfo->sections[$sectionnum])) {
+                continue;
+            }
+
+            foreach ($modinfo->sections[$sectionnum] as $cmid) {
+                $cm = $modinfo->cms[$cmid];
+
+                if (!$cm->uservisible) {
+                    continue;
+                }
+
+                if (!empty($filter) && $cm->modname != $filter) {
+                    continue;
+                }
+
+                if (!empty($filtermodid) && $cmid != $filtermodid) {
+                    continue;
+                }
+
+                if ($cm->modname == 'bigbluebuttonbn') {
+                    return bigbluebuttonbn_get_recent_mod_activity($activities,
+                        $index,
+                        $date,
+                        $course->id, $cmid,
+                        $user,
+                        $group);
+                }
+            }
+        }
+
+    }
+
+    /**
+     * Check user recent activity
+     *
+     * @covers ::bigbluebuttonbn_print_recent_mod_activity
+     */
+    public function test_bigbluebuttonbn_print_recent_mod_activity() {
+        $this->initialise_mock_server();
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $user = $generator->create_and_enrol($this->get_course());
+        $this->setUser($user);
+        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
+        // Now create a couple of logs.
+        $instance = instance::get_from_instanceid($bbactivity->id);
+        $recordings = $this->create_recordings_for_instance($instance, [['name' => "Pre-Recording 1"]]);
+        logger::log_meeting_joined_event($instance, 0);
+        logger::log_meeting_joined_event($instance, 0);
+        logger::log_recording_played_event($instance, $recordings[0]->id);
+
+        $activities = $this->prepare_for_recent_activity_array(0, $user->id, 0);
+        ob_start();
+        bigbluebuttonbn_print_recent_mod_activity($activities[1], $this->get_course()->id, false, [], false);
+        $output = ob_get_contents();
+        ob_end_clean();
+        $this->assertStringContainsString('Meeting joined', $output);
+    }
+
+
+    /**
+     * Check recent activity for the course
+     *
+     * @covers ::bigbluebuttonbn_print_recent_activity
+     */
+    public function test_bigbluebuttonbn_print_recent_activity() {
+        global $CFG;
+        $this->initialise_mock_server();
+        $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
+        $user = $generator->create_and_enrol($this->get_course());
+        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
+        // Now create a couple of logs.
+        $timestart = time() - HOURSECS;
+        $instance = instance::get_from_instanceid($bbactivity->id);
+        $recordings = $this->create_recordings_for_instance($instance, [['name' => "Pre-Recording 1"]]);
+
+        $this->setUser($user); // Important so the logs are set to this user.
+        logger::log_meeting_joined_event($instance, 0);
+        logger::log_meeting_joined_event($instance, 0);
+        logger::log_recording_played_event($instance, $recordings[0]->id);
+
+        $this->setAdminUser();
+        // Test that everything is displayed.
+        ob_start();
+        bigbluebuttonbn_print_recent_activity($this->get_course(), true, $timestart);
+        $output = ob_get_contents();
+        ob_end_clean();
+        $this->assertStringContainsString('Meeting joined', $output);
+        $this->assertStringContainsString(fullname($user), $output);
+        // Test that username are displayed in a different format.
+        $CFG->alternativefullnameformat = 'firstname lastname firstnamephonetic lastnamephonetic middlename alternatename';
+        $expectedname = "$user->firstname $user->lastname $user->firstnamephonetic "
+            . "$user->lastnamephonetic $user->middlename $user->alternatename";
+        ob_start();
+        bigbluebuttonbn_print_recent_activity($this->get_course(), false, $timestart);
+        $output = ob_get_contents();
+        ob_end_clean();
+        $this->assertStringContainsString('Meeting joined', $output);
+        $this->assertStringNotContainsString($expectedname, $output);
+        // Test that nothing is displayed as per timestart.
+        ob_start();
+        bigbluebuttonbn_print_recent_activity($this->get_course(), true, time());
+        $output = ob_get_contents();
+        ob_end_clean();
+        $this->assertEmpty($output);
+    }
+
+    /**
+     * Check extra capabilities return value
+     *
+     * @covers ::bigbluebuttonbn_get_extra_capabilities
+     */
     public function test_bigbluebuttonbn_get_extra_capabilities() {
         $this->resetAfterTest();
-        $this->assertEquals(array('moodle/site:accessallgroups'), bigbluebuttonbn_get_extra_capabilities());
+        $this->assertEquals(['moodle/site:accessallgroups'], bigbluebuttonbn_get_extra_capabilities());
     }
 
+    /**
+     * Check form definition
+     *
+     * @covers ::bigbluebuttonbn_reset_course_form_definition
+     */
     public function test_bigbluebuttonbn_reset_course_form_definition() {
         global $CFG, $PAGE;
-        $PAGE->set_course($this->course);
+        $this->initialise_mock_server();
+
+        $PAGE->set_course($this->get_course());
         $this->setAdminUser();
         $this->resetAfterTest();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
@@ -149,7 +356,7 @@ class lib_test extends \bbb_simple_test {
         $data->id = $bbactivity->id;
         $data->course = $bbactivity->course;
 
-        $form = new mod_bigbluebuttonbn_mod_form($data, 1, $bbactivitycm, $this->course);
+        $form = new mod_bigbluebuttonbn_mod_form($data, 1, $bbactivitycm, $this->get_course());
         $refclass = new ReflectionClass("mod_bigbluebuttonbn_mod_form");
         $formprop = $refclass->getProperty('_form');
         $formprop->setAccessible(true);
@@ -160,35 +367,119 @@ class lib_test extends \bbb_simple_test {
         $this->assertNotNull($mform->getElement('bigbluebuttonbnheader'));
     }
 
+    /**
+     * Check defaults for form
+     *
+     * @covers ::bigbluebuttonbn_reset_course_form_defaults
+     */
     public function test_bigbluebuttonbn_reset_course_form_defaults() {
         global $CFG;
         $this->resetAfterTest();
-        $results = bigbluebuttonbn_reset_course_form_defaults($this->course);
-        $this->assertEquals(array(
+        $results = bigbluebuttonbn_reset_course_form_defaults($this->get_course());
+        $this->assertEquals([
             'reset_bigbluebuttonbn_events' => 0,
             'reset_bigbluebuttonbn_tags' => 0,
             'reset_bigbluebuttonbn_logs' => 0,
             'reset_bigbluebuttonbn_recordings' => 0,
-        ), $results);
+        ], $results);
     }
 
+    /**
+     * Reset user data
+     *
+     * @covers ::bigbluebuttonbn_reset_userdata
+     */
     public function test_bigbluebuttonbn_reset_userdata() {
-        global $CFG;
+        global $DB;
         $this->resetAfterTest();
         $data = new stdClass();
+        $user = $this->getDataGenerator()->create_user();
+
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
-        $data->courseid = $this->course->id;
+        $this->getDataGenerator()->enrol_user($user->id, $this->course->id);
+        $this->setUser($user);
+
+        logger::log_meeting_joined_event(instance::get_from_instanceid($bbactivity->id), 0);
+        $data->courseid = $this->get_course()->id;
         $data->reset_bigbluebuttonbn_tags = true;
-        $data->reset_bigbluebuttonbn_tags = true;
+        $data->reset_bigbluebuttonbn_logs = true;
         $data->course = $bbactivity->course;
+        // Add and Join.
+        $this->assertCount(2, $DB->get_records('bigbluebuttonbn_logs', ['bigbluebuttonbnid' => $bbactivity->id]));
         $results = bigbluebuttonbn_reset_userdata($data);
-        $this->assertEquals(array(
+        $this->assertCount(0, $DB->get_records('bigbluebuttonbn_logs', ['bigbluebuttonbnid' => $bbactivity->id]));
+        $this->assertEquals([
             'component' => 'BigBlueButton',
             'item' => 'Deleted tags',
-            'error' => false,
-        ), $results[0]);
+            'error' => false
+        ],
+            $results[0]
+        );
     }
 
+    /**
+     * Reset user data in a course and checks it does not delete logs elsewhere
+     *
+     * @covers ::bigbluebuttonbn_reset_userdata
+     */
+    public function test_bigbluebuttonbn_reset_userdata_in_a_course() {
+        global $DB;
+        $this->resetAfterTest();
+        $data = new stdClass();
+        $user = $this->getDataGenerator()->create_user();
+
+        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
+        $this->getDataGenerator()->enrol_user($user->id, $this->course->id);
+        logger::log_meeting_joined_event(instance::get_from_instanceid($bbactivity->id), 0);
+
+        // Now create another activity in a course and add a couple of logs.
+        // Aim is to make sure that only logs from one course are deleted.
+        $course1 = $this->getDataGenerator()->create_course();
+        list($bbactivitycontext1, $bbactivitycm1, $bbactivity1) = $this->create_instance($course1);
+        logger::log_meeting_joined_event(instance::get_from_instanceid($bbactivity1->id), 0);
+
+        $data->courseid = $this->get_course()->id;
+        $data->reset_bigbluebuttonbn_tags = true;
+        $data->reset_bigbluebuttonbn_logs = true;
+        $data->course = $bbactivity->course;
+        // Add and Join.
+        $this->assertCount(2, $DB->get_records('bigbluebuttonbn_logs', ['bigbluebuttonbnid' => $bbactivity->id]));
+        $this->assertCount(2, $DB->get_records('bigbluebuttonbn_logs', ['bigbluebuttonbnid' => $bbactivity1->id]));
+        bigbluebuttonbn_reset_userdata($data);
+        $this->assertCount(0, $DB->get_records('bigbluebuttonbn_logs', ['bigbluebuttonbnid' => $bbactivity->id]));
+        $this->assertCount(2, $DB->get_records('bigbluebuttonbn_logs', ['bigbluebuttonbnid' => $bbactivity1->id]));
+    }
+
+    /**
+     * Reset user data in a course but do not delete logs
+     *
+     * @covers ::bigbluebuttonbn_reset_userdata
+     */
+    public function test_bigbluebuttonbn_reset_userdata_logs_not_deleted() {
+        global $DB;
+        $this->resetAfterTest();
+        $data = new stdClass();
+        $user = $this->getDataGenerator()->create_user();
+
+        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
+        $this->getDataGenerator()->enrol_user($user->id, $this->course->id);
+        $this->setUser($user);
+        logger::log_meeting_joined_event(instance::get_from_instanceid($bbactivity->id), 0);
+
+        $data->courseid = $this->get_course()->id;
+        $data->reset_bigbluebuttonbn_logs = false;
+        $data->course = $bbactivity->course;
+        // Add and Join.
+        $this->assertCount(2, $DB->get_records('bigbluebuttonbn_logs', ['bigbluebuttonbnid' => $bbactivity->id]));
+        bigbluebuttonbn_reset_userdata($data);
+        $this->assertCount(2, $DB->get_records('bigbluebuttonbn_logs', ['bigbluebuttonbnid' => $bbactivity->id]));
+    }
+
+    /**
+     * Check course module
+     *
+     * @covers ::bigbluebuttonbn_get_coursemodule_info
+     */
     public function test_bigbluebuttonbn_get_coursemodule_info() {
         $this->resetAfterTest();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
@@ -196,89 +487,11 @@ class lib_test extends \bbb_simple_test {
         $this->assertEquals($info->name, $bbactivity->name);
     }
 
-    public function test_mod_bigbluebuttonbn_get_completion_active_rule_descriptions() {
-        $this->resetAfterTest();
-        $user = $this->getDataGenerator()->create_user();
-        $this->setUser($user);
-        // Two activities, both with automatic completion. One has the 'completionsubmit' rule, one doesn't.
-        // Inspired from the same test in forum.
-        list($bbactivitycontext, $cm1, $bbactivity) = $this->create_instance($this->course,
-            ['completion' => '2', 'completionattendance' => '1']);
-        list($bbactivitycontext, $cm2, $bbactivity) = $this->create_instance($this->course,
-            ['completion' => '2', 'completionattendance' => '0']);
-
-        // Data for the stdClass input type.
-        // This type of input would occur when checking the default completion rules for an activity type, where we don't have
-        // any access to cm_info, rather the input is a stdClass containing completion and customdata attributes, just like cm_info.
-        $moddefaults = (object) [
-            'customdata' => [
-                'customcompletionrules' => [
-                    'completionsubmit' => '1',
-                ],
-            ],
-            'completion' => 2,
-        ];
-
-        $completioncm1 = new custom_completion($cm1, $user->id);
-        // TODO: check the return value here as there might be an issue with the function compared to the forum for example.
-        $this->assertEquals(
-            [
-                'completionengagementchats' => get_string('completionengagementchatsdesc', 'mod_bigbluebuttonbn',
-                    0),
-                'completionengagementtalks' => get_string('completionengagementtalksdesc', 'mod_bigbluebuttonbn',
-                    0),
-                'completionattendance' => get_string('completionattendancedesc', 'mod_bigbluebuttonbn',
-                    1),
-            ],
-            $completioncm1->get_custom_rule_descriptions());
-        $completioncm2 = new custom_completion($cm2, $user->id);
-        $this->assertEquals(
-            [
-                'completionengagementchats' => get_string('completionengagementchatsdesc', 'mod_bigbluebuttonbn',
-                    0),
-                'completionengagementtalks' => get_string('completionengagementtalksdesc', 'mod_bigbluebuttonbn',
-                    0),
-                'completionattendance' => get_string('completionattendancedesc', 'mod_bigbluebuttonbn',
-                    0),
-            ], $completioncm2->get_custom_rule_descriptions());
-    }
-
-    public function test_bigbluebuttonbn_pluginfile() {
-        $this->resetAfterTest();
-        $this->markTestSkipped(
-            'For now this test on send file and it should be mocked to avoid the real API CALL.'
-        );
-    }
-
-    public function test_bigbluebuttonbn_view() {
-        $this->resetAfterTest();
-        $this->setAdminUser();
-        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance([],
-            array('completion' => 2, 'completionview' => 1));
-
-        // Trigger and capture the event.
-        $sink = $this->redirectEvents();
-
-        bigbluebuttonbn_view($bbactivity, $this->course, $bbactivitycm, context_module::instance($bbactivitycm->id));
-
-        $events = $sink->get_events();
-        $this->assertCount(3, $events);
-        $event = reset($events);
-
-        // Checking that the event contains the expected values.
-        $this->assertInstanceOf('\mod_bigbluebuttonbn\event\activity_viewed', $event);
-        $this->assertEquals($bbactivitycontext, $event->get_context());
-        $url = new \moodle_url('/mod/bigbluebuttonbn/view.php', array('id' => $bbactivitycontext->instanceid));
-        $this->assertEquals($url, $event->get_url());
-        $this->assertEventContextNotUsed($event);
-        $this->assertNotEmpty($event->get_name());
-
-        // Check completion status.
-        $completion = new completion_info($this->course);
-        $completiondata = $completion->get_data($bbactivitycm);
-        $this->assertEquals(1, $completiondata->completionstate);
-    }
-
+    /**
+     * Check update since
+     *
+     * @covers ::bigbluebuttonbn_check_updates_since
+     */
     public function test_bigbluebuttonbn_check_updates_since() {
         $this->resetAfterTest();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
@@ -290,32 +503,32 @@ class lib_test extends \bbb_simple_test {
         );
     }
 
-    public function test_mod_bigbluebuttonbn_get_fontawesome_icon_map() {
-        $this->resetAfterTest();
-        $this->assertEquals(array('mod_bigbluebuttonbn:icon' => 'icon-bigbluebutton'),
-            mod_bigbluebuttonbn_get_fontawesome_icon_map());
-    }
-
+    /**
+     * Check event action (calendar)
+     *
+     * @covers ::mod_bigbluebuttonbn_core_calendar_provide_event_action
+     */
     public function test_mod_bigbluebuttonbn_core_calendar_provide_event_action() {
         global $DB;
+        $this->initialise_mock_server();
         $this->resetAfterTest();
         $this->setAdminUser();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
 
         // Standard use case, the meeting start and we want add an action event to join the meeting.
-        $event = $this->create_action_event($this->course, $bbactivity, bbb_constants::BIGBLUEBUTTON_EVENT_MEETING_START);
+        $event = $this->create_action_event($this->get_course(), $bbactivity, logger::EVENT_MEETING_START);
         $factory = new \core_calendar\action_factory();
         $actionevent = mod_bigbluebuttonbn_core_calendar_provide_event_action($event, $factory);
         $this->assertEquals("Join session", $actionevent->get_name());
 
-        // User has already joined the meeting (there is log event BIGBLUEBUTTONBN_LOG_EVENT_JOIN already for this user).
-        $overrides = array('meetingid' => $bbactivity->meetingid);
-        $meta = '{"origin":0}';
-        logs::bigbluebuttonbn_log($bbactivity, bbb_constants::BIGBLUEBUTTONBN_LOG_EVENT_JOIN, $overrides, $meta);
+        // User has already joined the meeting (there is log event EVENT_JOIN already for this user).
+        $instance = instance::get_from_instanceid($bbactivity->id);
+        logger::log_meeting_joined_event($instance, 0);
+
         $bbactivity->closingtime = time() - 1000;
         $bbactivity->openingtime = time() - 2000;
         $DB->update_record('bigbluebuttonbn', $bbactivity);
-        $event = $this->create_action_event($this->course, $bbactivity, bbb_constants::BIGBLUEBUTTON_EVENT_MEETING_START);
+        $event = $this->create_action_event($this->get_course(), $bbactivity, logger::EVENT_MEETING_START);
         $actionevent = mod_bigbluebuttonbn_core_calendar_provide_event_action($event, $factory);
         $this->assertNull($actionevent);
     }
@@ -323,13 +536,12 @@ class lib_test extends \bbb_simple_test {
     /**
      * Creates an action event.
      *
-     * @param \stdClass $course The course the bigbluebutton activity is in
-     * @param object $bbbactivity The bigbluebutton activity to create an event for
+     * @param stdClass $course The course the bigbluebutton activity is in
+     * @param stdClass $bbbactivity The bigbluebutton activity to create an event for
      * @param string $eventtype The event type. eg. ASSIGN_EVENT_TYPE_DUE.
      * @return bool|calendar_event
-     * @throws coding_exception
      */
-    private function create_action_event($course, $bbbactivity, $eventtype) {
+    private function create_action_event(stdClass $course, stdClass $bbbactivity, string $eventtype) {
         $event = new stdClass();
         $event->name = 'Calendar event';
         $event->modulename = 'bigbluebuttonbn';
@@ -343,6 +555,11 @@ class lib_test extends \bbb_simple_test {
         return calendar_event::create($event);
     }
 
+    /**
+     * Test setting navigation admin menu
+     *
+     * @covers ::bigbluebuttonbn_extend_settings_navigation
+     */
     public function test_bigbluebuttonbn_extend_settings_navigation_admin() {
         global $PAGE, $CFG;
         $this->resetAfterTest();
@@ -360,11 +577,18 @@ class lib_test extends \bbb_simple_test {
         $this->assertCount(1, $node->get_children_key_list());
     }
 
+    /**
+     * Check additional setting menu
+     *
+     * @covers ::bigbluebuttonbn_extend_settings_navigation
+     */
     public function test_bigbluebuttonbn_extend_settings_navigation_user() {
         global $PAGE, $CFG;
         $this->resetAfterTest();
+
+        $generator = $this->getDataGenerator();
         list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
-        $user = $this->generator->create_user();
+        $user = $generator->create_user();
         $this->setUser($user);
         list($course, $bbactivitycmuser) = get_course_and_cm_from_instance($bbactivity->id, 'bigbluebuttonbn');
 
@@ -378,5 +602,27 @@ class lib_test extends \bbb_simple_test {
         $node = navigation_node::create('testnavigationnode');
         bigbluebuttonbn_extend_settings_navigation($settingnav, $node);
         $this->assertCount(0, $node->get_children_key_list());
+    }
+
+    /**
+     * Check the visibility on calendar
+     * @covers ::mod_bigbluebuttonbn_core_calendar_is_event_visible
+     */
+    public function test_mod_bigbluebuttonbn_core_calendar_is_event_visible() {
+        global $DB;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        list($bbactivitycontext, $bbactivitycm, $bbactivity) = $this->create_instance();
+        $bbactivity->closingtime = time() - 1000;
+        $bbactivity->openingtime = time() - 2000;
+        $DB->update_record('bigbluebuttonbn', $bbactivity);
+        $event = $this->create_action_event($this->get_course(), $bbactivity, logger::EVENT_MEETING_START);
+        $this->assertFalse(mod_bigbluebuttonbn_core_calendar_is_event_visible($event));
+        $bbactivity->closingtime = time() + 1000;
+        $DB->update_record('bigbluebuttonbn', $bbactivity);
+        $event = $this->create_action_event($this->get_course(), $bbactivity, logger::EVENT_MEETING_START);
+        $this->assertTrue(mod_bigbluebuttonbn_core_calendar_is_event_visible($event));
+        $event->instance = 0;
+        $this->assertFalse(mod_bigbluebuttonbn_core_calendar_is_event_visible($event));
     }
 }

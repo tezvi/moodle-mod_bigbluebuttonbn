@@ -23,14 +23,26 @@ With the latest version of this plugin you can
 
 Note that on previous versions of Moodle you will need to use the specific version of this plugin.
 
-| Moodle Version    |  Branch      | Version                 |
-|-------------------|--------------|-------------------------|
-| Moodle 2.0 - 2.5  | v1.1-stable  | v1.1.1  (2015062101)    |
-| Moodle 2.6        | v2.0-stable  | v2.0.4  (2015080611)    |
-| Moodle 2.7 - 2.9  | v2.1-stable  | v2.1.15 (2016051920)    |
-| Moodle 3.0 - 3.1  | v2.2-stable  | v2.2.12 (2017101020)    |
-| Moodle 3.2 - 3.9  | v2.3-stable  | v2.3.4  (2019042009)    |
-| Moodle 3.4 - 3.9  | v2.4-beta    | v2.4-beta1 (2019101003) |
+| Moodle Version    |  Branch      | Version                   |
+|-------------------|--------------|---------------------------|
+| Moodle 2.0 - 2.5  | v1.1-stable  | v1.1.1  (2015062101)      |
+| Moodle 2.6 - 3.0  | v2.0-stable  | v2.0.4  (2015080611)      |
+| Moodle 2.7 - 3.4  | v2.1-stable  | v2.1.15 (2016051920)      |
+| Moodle 3.0 - 3.7  | v2.2-stable  | v2.2.13 (2017101021)      |
+| Moodle 3.2 - 3.10 | v2.3-stable  | v2.3.6  (2019042011)      |
+| Moodle 3.4 - 3.11 | v2.4-stable  | v2.4.7  (2019101014)      |
+| Moodle 3.11       | v3.0-stable  | v3.0.3  (2021101011)      |
+| Moodle 4.0        |      --      | moodle-core               |
+
+
+As the version included as part of Moodle 4.0 core develops, it would be hard to maintain full compatibility with previous versions of this plugin. For this reason the last major release will be v3.0, which was written for Moodle 3.11 and 4.0.
+
+This last version will be maintained and keep in pair with the Moodle 4.0 core version once it is released as stable, and it will be aligned to the Moodle project schedule for maintenance and support. But likely we will not see more new features added.
+
+For those running earlier versions of Moodle, we'll keep supporting the previous versions with security patches up to v2.2-stable, and for bug fixes up to v2.4-stable.
+
+We ecourage to update to the latest version of Moodle as soon as possible.
+
 
 Prerequisites
 =============
@@ -59,6 +71,20 @@ contains the latest source. We recommend to download the latest snapshot from th
 
 
 Note: Since version 2.2 the use of the RecordingsBN activity module to access recordings is no longer needed. But when running an older version, it is requiered in order to gain access to the recordings.
+
+Bug reports and Feature requests
+================================
+
+Bug reports and Feature requests have been tracked since long time using the [Moodle Tracker](https://tracker.moodle.org/) system under CONTRIB. But there are a few things to consider:
+
+1. Since this plugin is merged into Moodle core, version 2.4 is frozen for features and enhancements. Only bug fixes and security patches are being considered at this point.
+2. There is a version 3.0 coming up, but it is for Moodle 3.11 only and it is an adaptation of the version that is in core right now. But that will be released frozen for features and enhancements. Only bug fixes and security patches will be considered as well.
+3. Moodle will continue its own schedule, so you can expect new features and enhancements happening in Moodle 4.1
+4. Bug reports for version 2.4 and 3.0 should be done under [CONTRIB](https://tracker.moodle.org/projects/CONTRIB/).
+5. Bug reports for Moodle 4.0 should be done under [MDL](https://tracker.moodle.org/projects/MDL/).
+6. Feature requests for Moodle 4.1 and later should be done under [MDL](https://tracker.moodle.org/projects/MDL/).
+7. All issues open should be following [Moodle rules](https://docs.moodle.org/dev/Tracker_introduction) for documenting the issues and requests.
+8. Accepting or rejecting a request, same as scheduling its development is now done following Moodle development process.
 
 
 Contact Us

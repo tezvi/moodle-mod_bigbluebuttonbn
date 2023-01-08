@@ -35,18 +35,21 @@ defined('MOODLE_INTERNAL') || die();
  * @author    Laurent David (laurent@call-learning.fr)
  */
 class bbb_coverage extends phpunit_coverage_info {
-    /** @var array The list of folders relative to the plugin root to whitelist in coverage generation. */
-    protected $whitelistfolders = [
-            'classes',
+    /** @var array The list of folders relative to the plugin root to includelist in coverage generation. */
+    protected $includelistfolders = [
+        'classes',
+        'backup',
     ];
 
-    /** @var array The list of files relative to the plugin root to whitelist in coverage generation. */
-    protected $whitelistfiles = ['lib.php'];
+    /** @var array The list of files relative to the plugin root to includelist in coverage generation. */
+    protected $includelistfiles = [
+        'lib.php',
+    ];
 
     /** @var array The list of folders relative to the plugin root to excludelist in coverage generation. */
     protected $excludelistfolders = [];
 
     /** @var array The list of files relative to the plugin root to excludelist in coverage generation. */
     protected $excludelistfiles = [];
-};
+}
 return new bbb_coverage;

@@ -13,6 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
+
 /**
  * The mod_bigbluebuttonbn files helper
  *
@@ -29,11 +30,9 @@ use cache_store;
 use context;
 use context_module;
 use context_system;
-use mod_bigbluebuttonbn\plugin;
+use mod_bigbluebuttonbn\instance;
 use moodle_url;
 use stdClass;
-
-defined('MOODLE_INTERNAL') || die();
 
 /**
  * Utility class for all files routines helper
@@ -50,17 +49,16 @@ class files {
      * @param stdClass $context context object
      * @param string $filearea file area
      *
-     * @return false|null false if file not valid
-     * @throws \coding_exception
+     * @return bool|null false if file not valid
      */
-    public static function bigbluebuttonbn_pluginfile_valid($context, $filearea) {
+    public static function pluginfile_valid(stdClass $context, string $filearea): ?bool {
 
         // Can be in context module or in context_system (if is the presentation by default).
-        if (!in_array($context->contextlevel, array(CONTEXT_MODULE, CONTEXT_SYSTEM))) {
+        if (!in_array($context->contextlevel, [CONTEXT_MODULE, CONTEXT_SYSTEM])) {
             return false;
         }
 
-        if (!array_key_exists($filearea, static::bigbluebuttonbn_get_file_areas())) {
+        if (!array_key_exists($filearea, self::get_file_areas())) {
             return false;
         }
 
@@ -70,16 +68,16 @@ class files {
     /**
      * Helper for getting pluginfile.
      *
-     * @param stdClass $course course object
-     * @param stdClass $cm course module object
-     * @param stdClass $context context object
+     * @param stdClass|null $course course object
+     * @param stdClass|null $cm course module object
+     * @param context $context context object
      * @param string $filearea file area
      * @param array $args extra arguments
      *
-     * @return object|bool
+     * @return \stored_file|bool
      */
-    public static function bigbluebuttonbn_pluginfile_file($course, $cm, $context, $filearea, $args) {
-        $filename = static::bigbluebuttonbn_pluginfile_filename($course, $cm, $context, $args);
+    public static function pluginfile_file(?stdClass $course, ?stdClass $cm, context $context, string $filearea, array $args) {
+        $filename = self::get_plugin_filename($course, $cm, $context, $args);
         if (!$filename) {
             return false;
         }
@@ -93,135 +91,23 @@ class files {
     }
 
     /**
-     * Helper for give access to the file configured in setting as default presentation.
-     *
-     * @param stdClass $course course object
-     * @param stdClass $cm course module object
-     * @param stdClass $context context object
-     * @param array $args extra arguments
-     *
-     * @return array|string|null
-     * @throws \coding_exception
-     */
-    public static function bigbluebuttonbn_default_presentation_get_file($course, $cm, $context, $args) {
-
-        // The difference with the standard bigbluebuttonbn_pluginfile_filename() are.
-        // - Context is system, so we don't need to check the cmid in this case.
-        // - The area is "presentationdefault_cache".
-        if (count($args) > 1) {
-            $cache = cache::make_from_params(
-                cache_store::MODE_APPLICATION,
-                'mod_bigbluebuttonbn',
-                'presentationdefault_cache'
-            );
-
-            $noncekey = sha1($context->id);
-            $presentationnonce = $cache->get($noncekey);
-            $noncevalue = $presentationnonce['value'];
-            $noncecounter = $presentationnonce['counter'];
-            if ($args['0'] != $noncevalue) {
-                return null;
-            }
-
-            // The nonce value is actually used twice because BigBlueButton reads the file two times.
-            $noncecounter += 1;
-            $cache->set($noncekey, array('value' => $noncevalue, 'counter' => $noncecounter));
-            if ($noncecounter == 2) {
-                $cache->delete($noncekey);
-            }
-            return ($args['1']);
-        }
-        require_course_login($course, true, $cm);
-        if (!has_capability('mod/bigbluebuttonbn:join', $context)) {
-            return null;
-        }
-        return implode('/', $args);
-    }
-
-    /**
-     * Helper for getting pluginfile name.
-     *
-     * @param stdClass $course course object
-     * @param stdClass $cm course module object
-     * @param stdClass $context context object
-     * @param array $args extra arguments
-     *
-     * @return string|array|null
-     */
-    public static function bigbluebuttonbn_pluginfile_filename($course, $cm, $context, $args) {
-        global $DB;
-
-        if ($context->contextlevel == CONTEXT_SYSTEM) {
-            // Plugin has a file to use as default in general setting.
-            return (static::bigbluebuttonbn_default_presentation_get_file($course, $cm, $context, $args));
-        }
-
-        if (count($args) > 1) {
-            if (!$bigbluebuttonbn = $DB->get_record('bigbluebuttonbn', array('id' => $cm->instance))) {
-                return null;
-            }
-            $cache = cache::make_from_params(cache_store::MODE_APPLICATION, 'mod_bigbluebuttonbn', 'presentation_cache');
-            $noncekey = sha1($bigbluebuttonbn->id);
-            $presentationnonce = $cache->get($noncekey);
-            if (!empty($presentationnonce)) {
-                $noncevalue = $presentationnonce['value'];
-                $noncecounter = $presentationnonce['counter'];
-            } else {
-                $noncevalue = null;
-                $noncecounter = 0;
-            }
-
-            if ($args['0'] != $noncevalue) {
-                return null;
-            }
-            // The nonce value is actually used twice because BigBlueButton reads the file two times.
-            $noncecounter += 1;
-            $cache->set($noncekey, array('value' => $noncevalue, 'counter' => $noncecounter));
-            if ($noncecounter == 2) {
-                $cache->delete($noncekey);
-            }
-            return $args['1'];
-        }
-        require_course_login($course, true, $cm);
-        if (!has_capability('mod/bigbluebuttonbn:join', $context)) {
-            return null;
-        }
-        return implode('/', $args);
-    }
-
-    /**
-     * Returns an array of file areas.
-     *
-     * @return array a list of available file areas
-     * @throws \coding_exception
-     * @category files
-     *
-     */
-    public static function bigbluebuttonbn_get_file_areas() {
-        $areas = array();
-        $areas['presentation'] = get_string('mod_form_block_presentation', 'bigbluebuttonbn');
-        $areas['presentationdefault'] = get_string('mod_form_block_presentation_default', 'bigbluebuttonbn');
-        return $areas;
-    }
-
-    /**
      * Get a full path to the file attached as a preuploaded presentation
      * or if there is none, set the presentation field will be set to blank.
      *
-     * @param object $bigbluebuttonbn BigBlueButtonBN form data
-     *
+     * @param stdClass $bigbluebuttonformdata BigBlueButtonBN form data
+     * Note that $bigbluebuttonformdata->presentation is the id of the filearea whereas the bbb instance table
+     * stores the file name/path
      * @return string
-     * @throws \coding_exception
      */
-    public static function bigbluebuttonbn_get_media_file(&$bigbluebuttonbn) {
-        if (!isset($bigbluebuttonbn->presentation) || $bigbluebuttonbn->presentation == '') {
+    public static function save_media_file(stdClass &$bigbluebuttonformdata): string {
+        if (!isset($bigbluebuttonformdata->presentation) || $bigbluebuttonformdata->presentation == '') {
             return '';
         }
-        $context = context_module::instance($bigbluebuttonbn->coursemodule);
+        $context = context_module::instance($bigbluebuttonformdata->coursemodule);
         // Set the filestorage object.
         $fs = get_file_storage();
         // Save the file if it exists that is currently in the draft area.
-        file_save_draft_area_files($bigbluebuttonbn->presentation, $context->id, 'mod_bigbluebuttonbn', 'presentation', 0);
+        file_save_draft_area_files($bigbluebuttonformdata->presentation, $context->id, 'mod_bigbluebuttonbn', 'presentation', 0);
         // Get the file if it exists.
         $files = $fs->get_area_files(
             $context->id,
@@ -245,101 +131,194 @@ class files {
      * Helper return array containing the file descriptor for a preuploaded presentation.
      *
      * @param context $context
-     * @param string $presentation
-     * @param integer $id
-     *
-     * @return array
+     * @param string $presentation matching presentation file name
+     * @param int $id bigbluebutton instance id
+     * @param bool $withnonce add nonce to the url
+     * @return array|null the representation of the presentation as an associative array
      */
-    public static function bigbluebuttonbn_get_presentation_array($context, $presentation, $id = null) {
+    public static function get_presentation(context $context, string $presentation, $id = null, $withnonce = false): ?array {
         global $CFG;
-        if (empty($presentation)) {
-            if ($CFG->bigbluebuttonbn_preuploadpresentation_enabled) {
-                // Item has not presentation but presentation is enabled..
-                // Check if exist some file by default in general mod setting ("presentationdefault").
-                $fs = get_file_storage();
-                $files = $fs->get_area_files(
-                    context_system::instance()->id,
-                    'mod_bigbluebuttonbn',
-                    'presentationdefault',
-                    0,
-                    "filename",
-                    false
-                );
-
-                if (count($files) == 0) {
-                    // Not exist file by default in "presentationbydefault" setting.
-                    return array('url' => null, 'name' => null, 'icon' => null, 'mimetype_description' => null);
-                }
-
-                // Exists file in general setting to use as default for presentation. Cache image for temp public access.
-                $file = reset($files);
-                unset($files);
-                $pnoncevalue = null;
-                if (!is_null($id)) {
-                    // Create the nonce component for granting a temporary public access.
-                    $cache = cache::make_from_params(
-                        cache_store::MODE_APPLICATION,
-                        'mod_bigbluebuttonbn',
-                        'presentationdefault_cache'
-                    );
-                    $pnoncekey = sha1(context_system::instance()->id);
-                    /* The item id was adapted for granting public access to the presentation once in order
-                     * to allow BigBlueButton to gather the file. */
-                    $pnoncevalue = plugin::bigbluebuttonbn_generate_nonce();
-                    $cache->set($pnoncekey, array('value' => $pnoncevalue, 'counter' => 0));
-                }
-
-                $url = moodle_url::make_pluginfile_url(
-                    $file->get_contextid(),
-                    $file->get_component(),
-                    $file->get_filearea(),
-                    $pnoncevalue,
-                    $file->get_filepath(),
-                    $file->get_filename()
-                );
-                return (array('name' => $file->get_filename(), 'icon' => file_file_icon($file, 24),
-                    'url' => $url->out(false), 'mimetype_description' => get_mimetype_description($file)));
-            }
-
-            return array('url' => null, 'name' => null, 'icon' => null, 'mimetype_description' => null);
-        }
         $fs = get_file_storage();
-        $files = $fs->get_area_files(
+        $files = [];
+        $defaultpresentation = $fs->get_area_files(
+            context_system::instance()->id,
+            'mod_bigbluebuttonbn',
+            'presentationdefault',
+            0,
+            "filename",
+            false
+        );
+        $activitypresentation = $files = $fs->get_area_files(
             $context->id,
             'mod_bigbluebuttonbn',
             'presentation',
-            0,
+            false,
             'itemid, filepath, filename',
             false
         );
-        if (count($files) == 0) {
-            return array('url' => null, 'name' => null, 'icon' => null, 'mimetype_description' => null);
+        // Presentation upload logic based on config settings.
+        if (empty($defaultpresentation)) {
+            if (empty($activitypresentation) || !\mod_bigbluebuttonbn\local\config::get('preuploadpresentation_editable')) {
+                return null;
+            }
+            $files = $activitypresentation;
+
+        } else {
+            if (empty($activitypresentation) || !\mod_bigbluebuttonbn\local\config::get('preuploadpresentation_editable')) {
+                $files = $defaultpresentation;
+                $id = null;
+            } else {
+                $files = $activitypresentation;
+            }
         }
-        $file = reset($files);
-        unset($files);
-        $pnoncevalue = null;
-        if (!is_null($id)) {
-            // Create the nonce component for granting a temporary public access.
-            $cache = cache::make_from_params(
-                cache_store::MODE_APPLICATION,
-                'mod_bigbluebuttonbn',
-                'presentation_cache'
-            );
-            $pnoncekey = sha1($id);
-            /* The item id was adapted for granting public access to the presentation once in order
-             * to allow BigBlueButton to gather the file. */
-            $pnoncevalue = plugin::bigbluebuttonbn_generate_nonce();
-            $cache->set($pnoncekey, array('value' => $pnoncevalue, 'counter' => 0));
+        $pnoncevalue = 0;
+        if ($withnonce) {
+            $nonceid = 0;
+            if (!is_null($id)) {
+                $instance = instance::get_from_instanceid($id);
+                $nonceid = $instance->get_instance_id();
+            }
+            $pnoncevalue = self::generate_nonce($nonceid);
         }
+
+        $file = null;
+        foreach ($files as $f) {
+            if (basename($f->get_filename()) == basename($presentation)) {
+                $file = $f;
+            }
+        }
+        if (!$file && !empty($files)) {
+            $file = reset($files);
+        }
+        if (empty($file)) {
+            return null; // File was not found.
+        }
+
+        // Note: $pnoncevalue is an int.
         $url = moodle_url::make_pluginfile_url(
             $file->get_contextid(),
             $file->get_component(),
             $file->get_filearea(),
-            $pnoncevalue,
+            $withnonce ? $pnoncevalue : null, // Hack: item id as a nonce.
             $file->get_filepath(),
             $file->get_filename()
         );
-        return array('name' => $file->get_filename(), 'icon' => file_file_icon($file, 24),
-            'url' => $url->out(false), 'mimetype_description' => get_mimetype_description($file));
+        return [
+            'icondesc' => get_mimetype_description($file),
+            'iconname' => file_file_icon($file, 24),
+            'name' => $file->get_filename(),
+            'url' => $url->out(false),
+        ];
     }
+
+    /**
+     * Helper for getting pluginfile name.
+     *
+     * @param stdClass|null $course course object
+     * @param stdClass|null $cm course module object
+     * @param context $context context object
+     * @param array $args extra arguments
+     *
+     * @return string|null
+     */
+    public static function get_plugin_filename(?stdClass $course, ?stdClass $cm, context $context, array $args): ?string {
+        global $DB;
+        if ($context->contextlevel != CONTEXT_SYSTEM) {
+            // Plugin has a file to use as default in general setting.
+            // The difference with the standard bigbluebuttonbn_pluginfile_filename() are.
+            // - Context is system, so we don't need to check the cmid in this case.
+            // - The area is "presentationdefault_cache".
+            if (!$DB->get_record('bigbluebuttonbn', ['id' => $cm->instance])) {
+                return null;
+            }
+        }
+        // Plugin has a file to use as default in general setting.
+        // The difference with the standard bigbluebuttonbn_pluginfile_filename() are.
+        // - Context is system, so we don't need to check the cmid in this case.
+        // - The area is "presentationdefault_cache".
+        if (count($args) > 1) {
+            $id = 0;
+            if ($cm) {
+                $instance = instance::get_from_cmid($cm->id);
+                $id = $instance->get_instance_id();
+            }
+            $actualnonce = self::get_nonce($id);
+            return ($args['0'] == $actualnonce) ? $args['1'] : null;
+
+        }
+        if (!empty($course)) {
+            require_course_login($course, true, $cm, true, true);
+        } else {
+            require_login(null, true, $cm, true, true);
+        }
+        if (!has_capability('mod/bigbluebuttonbn:join', $context)) {
+            return null;
+        }
+        return implode('/', $args);
+    }
+
+    /**
+     * Helper generates a salt used for the preuploaded presentation callback url.
+     *
+     * @param int $id
+     * @return int
+     */
+    protected static function get_nonce(int $id): int {
+        $cache = static::get_nonce_cache();
+        $pnoncekey = sha1($id);
+        $existingnoncedata = $cache->get($pnoncekey);
+        if ($existingnoncedata) {
+            if ($existingnoncedata->counter > 0) {
+                $existingnoncedata->counter--;
+                $cache->set($pnoncekey, $existingnoncedata);
+                return $existingnoncedata->nonce;
+            }
+        }
+        // The item id was adapted for granting public access to the presentation once in order to allow BigBlueButton to gather
+        // the file once.
+        return static::generate_nonce($id);
+    }
+
+    /**
+     * Generate a nonce and store it in the cache
+     *
+     * @param int $id
+     * @return int
+     */
+    protected static function generate_nonce($id): int {
+        $cache = static::get_nonce_cache();
+        $pnoncekey = sha1($id);
+        // The item id was adapted for granting public access to the presentation once in order to allow BigBlueButton to gather
+        // the file once.
+        $pnoncevalue = ((int) microtime()) + mt_rand();
+        $cache->set($pnoncekey, (object) ['nonce' => $pnoncevalue, 'counter' => 2]);
+        return $pnoncevalue;
+    }
+
+    /**
+     * Get cache for nonce
+     *
+     * @return \cache_application|\cache_session|cache_store
+     */
+    private static function get_nonce_cache() {
+        return cache::make_from_params(
+            cache_store::MODE_APPLICATION,
+            'mod_bigbluebuttonbn',
+            'presentation_cache'
+        );
+    }
+
+    /**
+     * Returns an array of file areas.
+     *
+     * @return array a list of available file areas
+     *
+     */
+    protected static function get_file_areas(): array {
+        $areas = [];
+        $areas['presentation'] = get_string('mod_form_block_presentation', 'bigbluebuttonbn');
+        $areas['presentationdefault'] = get_string('mod_form_block_presentation_default', 'bigbluebuttonbn');
+        return $areas;
+    }
+
 }

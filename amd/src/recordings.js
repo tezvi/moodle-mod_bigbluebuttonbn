@@ -13,62 +13,59 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+/**
+ * JS for the recordings page on mod_bigbluebuttonbn plugin.
+ *
+ * @module      mod_bigbluebuttonbn/recordings
+ * @copyright   2021 Blindside Networks Inc
+ * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
 import * as repository from './repository';
 import {exception as displayException} from 'core/notification';
-import {get_strings as getStrings} from 'core/str';
+import {prefetchStrings} from 'core/prefetch';
+import {get_string as getString, get_strings as getStrings} from 'core/str';
 import {addIconToContainerWithPromise} from 'core/loadingicon';
 import ModalFactory from 'core/modal_factory';
 import ModalEvents from 'core/modal_events';
-import * as Str from 'core/str';
+import Pending from 'core/pending';
 
-// eslint-disable-next-line
-const convertFeaturesToMap = profileFeatures => {
-    const mappedFeatures = new Map();
-    for (const feature of profileFeatures) {
-        mappedFeatures.set(feature, true);
-    }
-
-    return mappedFeatures;
+const stringsWithKeys = {
+    first: 'view_recording_yui_first',
+    prev: 'view_recording_yui_prev',
+    next: 'view_recording_yui_next',
+    last: 'view_recording_yui_last',
+    goToLabel: 'view_recording_yui_page',
+    goToAction: 'view_recording_yui_go',
+    perPage: 'view_recording_yui_rows',
+    showAll: 'view_recording_yui_show_all',
 };
+// Load global strings.
+prefetchStrings('bigbluebuttonbn', Object.entries(stringsWithKeys).map((entry) => entry[1]));
 
-/**
- * Initiate the YUI langauge strings with appropriate values for the sortable list from Moodle.
- *
- * @param   {YUI} Y
- * @returns {Promise}
- */
-const initYuiLanguage = Y => {
-    const stringList = [
-        'view_recording_yui_first',
-        'view_recording_yui_prev',
-        'view_recording_yui_next',
-        'view_recording_yui_last',
-        'view_recording_yui_page',
-        'view_recording_yui_go',
-        'view_recording_yui_rows',
-        'view_recording_yui_show_all',
-    ].map(key => {
+const getStringsForYui = () => {
+    const stringMap = Object.keys(stringsWithKeys).map(key => {
         return {
-            key,
-            component: 'bigbluebuttonbn',
+            key: stringsWithKeys[key],
+            component: 'mod_bigbluebuttonbn',
         };
     });
 
-    return getStrings(stringList)
-        .then(([first, prev, next, last, goToLabel, goToAction, perPage, showAll]) => {
-            Y.Intl.add('datatable-paginator', Y.config.lang, {
-                first,
-                prev,
-                next,
-                last,
-                goToLabel,
-                goToAction,
-                perPage,
-                showAll,
-            });
-        })
-        .catch();
+    // Return an object with the matching string keys (we want an object with {<stringkey>: <stringvalue>...}).
+    return getStrings(stringMap)
+        .then((stringArray) => Object.assign({}, ...Object.keys(stringsWithKeys).map(
+            (key, index) => ({[key]: stringArray[index]})))
+        ).catch();
 };
+
+const getYuiInstance = lang => new Promise(resolve => {
+    // eslint-disable-next-line
+    YUI({
+        lang,
+    }).use('intl', 'datatable', 'datatable-sort', 'datatable-paginator', 'datatype-number', Y => {
+        resolve(Y);
+    });
+});
 
 /**
  * Format the supplied date per the specified locale.
@@ -77,16 +74,16 @@ const initYuiLanguage = Y => {
  * @param   {array} dateList
  * @returns {array}
  */
-const formatDates = (locale, dateList) => dateList.map(row => {
+ const formatDates = (locale, dateList) => dateList.map(row => {
     const date = new Date(row.date);
     row.date = date.toLocaleDateString(locale, {
         weekday: 'long',
         year: 'numeric',
         month: 'long',
-        day: 'numeric'
+        day: 'numeric',
     });
-
     return row;
+
 });
 
 /**
@@ -97,33 +94,46 @@ const formatDates = (locale, dateList) => dateList.map(row => {
  */
 const getFormattedData = response => {
     const recordingData = response.tabledata;
-    let rowData = JSON.parse(recordingData.data);
+    const rowData = JSON.parse(recordingData.data);
 
-    rowData = formatDates(recordingData.locale, rowData);
-
-    return rowData;
-};
-/**
- *
- * @param {String} tableId in which we will display the table
- * @returns {[(*|number), string, boolean]}
- */
-const getTableInformations = (tableId) => {
-    const tableElement = document.querySelector(tableId);
-    const bbbid = tableElement.dataset.bbbid;
-    const tools = tableElement.dataset.tools;
-    const removeImportedId = tableElement.dataset.removeImportedId;
-    return [bbbid, removeImportedId, tools];
+    return formatDates(recordingData.locale, rowData);
 };
 
+const getTableNode = tableSelector => document.querySelector(tableSelector);
+
+const fetchRecordingData = tableSelector => {
+    const tableNode = getTableNode(tableSelector);
+
+    if (tableNode.dataset.importMode) {
+        return repository.fetchRecordingsToImport(
+            tableNode.dataset.bbbid,
+            tableNode.dataset.bbbSourceInstanceId,
+            tableNode.dataset.bbbSourceCourseId,
+            tableNode.dataset.tools,
+            tableNode.dataset.groupId
+        );
+    } else {
+        return repository.fetchRecordings(
+            tableNode.dataset.bbbid,
+            tableNode.dataset.tools,
+            tableNode.dataset.groupId
+        );
+    }
+};
+
 /**
+ * Fetch the data table functinos for the specified table.
  *
  * @param {String} tableId in which we will display the table
  * @param {String} searchFormId The Id of the relate.
  * @param {Object} dataTable
- * @returns {{refreshTableData: refreshTableData, filterByText: filterByText, registerEventListeners: registerEventListeners}}
+ * @returns {Object}
+ * @private
  */
 const getDataTableFunctions = (tableId, searchFormId, dataTable) => {
+    const tableNode = getTableNode(tableId);
+    const bbbid = tableNode.dataset.bbbid;
+
     const updateTableFromResponse = response => {
         if (!response || !response.status) {
             // There was no output at all.
@@ -142,8 +152,7 @@ const getDataTableFunctions = (tableId, searchFormId, dataTable) => {
         }
     };
 
-    const [bbbid, removeImportedId, tools] = getTableInformations(tableId);
-    const refreshTableData = () => repository.fetchRecordings(bbbid, removeImportedId, tools).then(updateTableFromResponse);
+    const refreshTableData = () => fetchRecordingData(tableId).then(updateTableFromResponse);
 
     const filterByText = value => {
         const dataModel = dataTable.get('currentData');
@@ -159,16 +168,19 @@ const getDataTableFunctions = (tableId, searchFormId, dataTable) => {
             }
 
             const description = item.get('description');
-            if (description && rsearch.test(description)) {
-                return true;
-            }
-
-            return false;
+            return description && rsearch.test(description);
         }));
     };
 
     const requestAction = (element) => {
-        const getDataFromAction = (element, dataType) => element.closest(`[data-${dataType}]`).dataset[dataType];
+        const getDataFromAction = (element, dataType) => {
+            const dataElement = element.closest(`[data-${dataType}]`);
+            if (dataElement) {
+                return dataElement.dataset[dataType];
+            }
+
+            return null;
+        };
 
         const elementData = element.dataset;
         const payload = {
@@ -177,27 +189,38 @@ const getDataTableFunctions = (tableId, searchFormId, dataTable) => {
             additionaloptions: getDataFromAction(element, 'additionaloptions'),
             action: elementData.action,
         };
-        // Slight change for import, the bigbluebuttonid is the bbb origin id.
-        if (elementData.action === 'import') {
-            payload.bigbluebuttonbnid = getDataFromAction(element, 'bboriginid');
+        // Slight change for import, for additional options.
+        if (!payload.additionaloptions) {
+            payload.additionaloptions = {};
         }
+        if (elementData.action === 'import') {
+            const bbbsourceid = getDataFromAction(element, 'source-instance-id');
+            const bbbcourseid = getDataFromAction(element, 'source-course-id');
+            if (!payload.additionaloptions) {
+                payload.additionaloptions = {};
+            }
+            payload.additionaloptions.sourceid = bbbsourceid ? bbbsourceid : 0;
+            payload.additionaloptions.bbbcourseid = bbbcourseid ? bbbcourseid : 0;
+        }
+        // Now additional options should be a json string.
+        payload.additionaloptions = JSON.stringify(payload.additionaloptions);
         if (element.dataset.requireConfirmation === "1") {
             // Create the confirmation dialogue.
             return new Promise((resolve) =>
                 ModalFactory.create({
-                    title: Str.get_string('confirm'),
+                    title: getString('confirm'),
                     body: recordingConfirmationMessage(payload),
                     type: ModalFactory.types.SAVE_CANCEL
-                }).then((modal) => {
-                    modal.setSaveButtonText(Str.get_string('ok'));
+                }).then(async(modal) => {
+                    modal.setSaveButtonText(await getString('ok', 'moodle'));
 
                     // Handle save event.
-                    modal.getRoot().on(ModalEvents.save, function () {
+                    modal.getRoot().on(ModalEvents.save, () => {
                         resolve(true);
                     });
 
                     // Handle hidden event.
-                    modal.getRoot().on(ModalEvents.hidden, function () {
+                    modal.getRoot().on(ModalEvents.hidden, () => {
                         // Destroy when hidden.
                         modal.destroy();
                         resolve(false);
@@ -205,6 +228,7 @@ const getDataTableFunctions = (tableId, searchFormId, dataTable) => {
 
                     modal.show();
 
+                    return modal;
                 }).catch(Notification.exception)
             ).then((proceed) =>
                 proceed ? repository.updateRecording(payload) : () => null
@@ -214,34 +238,34 @@ const getDataTableFunctions = (tableId, searchFormId, dataTable) => {
         }
     };
 
-    const recordingConfirmationMessage = async (data) => {
-        let confirmation = await Str.get_string('view_recording_' + data.action + '_confirmation', 'bigbluebuttonbn');
-        if (typeof confirmation === 'undefined') {
-            return '';
-        }
-        let recordingType = await Str.get_string('view_recording', 'bigbluebuttonbn');
-        const playbackElement = document.querySelector('#playbacks-' + data.recordingid);
-        if (playbackElement.dataset.imported === 'true') {
-            recordingType = await Str.get_string('view_recording_link', 'bigbluebuttonbn');
-        }
-        confirmation = confirmation.replace("{$a}", recordingType);
+    const recordingConfirmationMessage = async(data) => {
+
+        const playbackElement = document.querySelector(`#playbacks-${data.recordingid}`);
+        const recordingType = await getString(
+            playbackElement.dataset.imported === 'true' ? 'view_recording_link' : 'view_recording',
+            'bigbluebuttonbn'
+        );
+
+        const confirmation = await getString(`view_recording_${data.action}_confirmation`, 'bigbluebuttonbn', recordingType);
+
         if (data.action === 'import') {
             return confirmation;
         }
-        // If it has associated links imported in a different course/activity, show that in confirmation dialog.
-        const associatedLinks = document.querySelector(`a#recording-${data.action}-${data.recordingid}`);
 
-        if (associatedLinks && associatedLinks.dataset && associatedLinks.dataset.links === 0) {
+        // If it has associated links imported in a different course/activity, show that in confirmation dialog.
+        const associatedLinkCount = document.querySelector(`a#recording-${data.action}-${data.recordingid}`)?.dataset?.links;
+        if (!associatedLinkCount || associatedLinkCount === 0) {
             return confirmation;
         }
-        const numberAssociatedLinks = Number.parseInt(associatedLinks.dataset.links);
-        let confirmationWarning = await Str.get_string('view_recording_' + data.action + '_confirmation_warning_p',
-            'bigbluebuttonbn', numberAssociatedLinks);
-        if (numberAssociatedLinks === 1) {
-            confirmationWarning = await Str.get_string('view_recording_' + data.action + '_confirmation_warning_s',
-                'bigbluebuttonbn');
-        }
-        confirmationWarning = confirmationWarning.replace("{$a}", numberAssociatedLinks) + '. ';
+
+        const confirmationWarning = await getString(
+            associatedLinkCount === 1
+                ? `view_recording_${data.action}_confirmation_warning_p`
+                : `view_recording_${data.action}_confirmation_warning_s`,
+            'bigbluebuttonbn',
+            associatedLinkCount
+        );
+
         return confirmationWarning + '\n\n' + confirmation;
     };
 
@@ -251,22 +275,20 @@ const getDataTableFunctions = (tableId, searchFormId, dataTable) => {
      * @param   {Event} e
      */
     const processAction = e => {
-        const popoutLink = e.target.closest('a[data-href]');
+        const popoutLink = e.target.closest('[data-action="play"]');
         if (popoutLink) {
             e.preventDefault();
 
             const videoPlayer = window.open('', '_blank');
             videoPlayer.opener = null;
-            videoPlayer.location.href = popoutLink.dataset.href;
-
-            // TODO repository.viewRecording(args); .
-
+            videoPlayer.location.href = popoutLink.href;
+            // TODO send a recording viewed event when this event will be implemented.
             return;
         }
 
         // Fetch any clicked anchor.
         const clickedLink = e.target.closest('a[data-action]');
-        if (clickedLink) {
+        if (clickedLink && !clickedLink.classList.contains('disabled')) {
             e.preventDefault();
 
             // Create a spinning icon on the table.
@@ -275,7 +297,8 @@ const getDataTableFunctions = (tableId, searchFormId, dataTable) => {
             requestAction(clickedLink)
                 .then(refreshTableData)
                 .catch(displayException)
-                .then(iconPromise.resolve);
+                .then(iconPromise.resolve)
+                .catch();
         }
     };
 
@@ -327,39 +350,42 @@ const setupDatatable = (tableId, searchFormId, response) => {
 
     const recordingData = response.tabledata;
 
-    let showRecordings = recordingData.profile_features.indexOf('all') !== -1;
-    showRecordings = showRecordings || recordingData.profile_features.indexOf('showrecordings') !== -1;
-    if (!showRecordings) {
-        // TODO: This should be handled by the web service.
-        // This user is not allowed to view recordings.
-        return Promise.resolve();
-    }
+    const pendingPromise = new Pending('mod_bigbluebuttonbn/recordings/setupDatatable');
+    return Promise.all([getYuiInstance(recordingData.locale), getStringsForYui()])
+        .then(([yuiInstance, strings]) => {
+            // Here we use a custom formatter for date.
+            // See https://clarle.github.io/yui3/yui/docs/api/classes/DataTable.BodyView.Formatters.html
+            // Inspired from examples here: https://clarle.github.io/yui3/yui/docs/datatable/
+            // Normally formatter have the prototype: (col) => (cell) => <computed value>, see:
+            // https://clarle.github.io/yui3/yui/docs/api/files/datatable_js_formatters.js.html#l100 .
+           // const dateCustomFormatter = () => (cell) => formatDate(recordingData.locale, cell.value);
+            // Add the fetched strings to the YUI Instance.
+            yuiInstance.Intl.add('datatable-paginator', yuiInstance.config.lang, {...strings});
+           // yuiInstance.DataTable.BodyView.Formatters.customDate = dateCustomFormatter;
+            return yuiInstance;
+        })
+        .then(yuiInstance => {
 
-    return new Promise(function (resolve) {
-        // eslint-disable-next-line
-        YUI({
-            lang: recordingData.locale,
-        }).use('intl', 'datatable', 'datatable-sort', 'datatable-paginator', 'datatype-number', Y => {
-            initYuiLanguage(Y)
-                .then(() => {
-                    const tableData = getFormattedData(response);
-
-                    const dataTable = new Y.DataTable({
-                        width: "1195px",
-                        columns: recordingData.columns,
-                        data: tableData,
-                        rowsPerPage: 3,
-                        paginatorLocation: ['header', 'footer']
-                    });
-                    dataTable.set('currentData', dataTable.get('data'));
-                    dataTable.set('currentFilter', '');
-
-                    return dataTable;
-                })
-                .then(resolve)
-                .catch();
-        });
-    })
+            const tableData = getFormattedData(response);
+            yuiInstance.RecordsPaginatorView = Y.Base.create('my-paginator-view', yuiInstance.DataTable.Paginator.View, [], {
+                _modelChange: function(e) {
+                    var changed = e.changed,
+                        totalItems = (changed && changed.totalItems);
+                    if (totalItems) {
+                        this._updateControlsUI(e.target.get('page'));
+                    }
+                }
+            });
+            return new yuiInstance.DataTable({
+                paginatorView: "RecordsPaginatorView",
+                width: "1195px",
+                columns: recordingData.columns,
+                data: tableData,
+                rowsPerPage: 10,
+                paginatorLocation: ['header', 'footer'],
+                autoSync: true
+            });
+        })
         .then(dataTable => {
             dataTable.render(tableId);
             const {registerEventListeners} = getDataTableFunctions(
@@ -367,7 +393,10 @@ const setupDatatable = (tableId, searchFormId, response) => {
                 searchFormId,
                 dataTable);
             registerEventListeners();
-
+            return dataTable;
+        })
+        .then(dataTable => {
+            pendingPromise.resolve();
             return dataTable;
         });
 };
@@ -380,8 +409,7 @@ const setupDatatable = (tableId, searchFormId, response) => {
  * @param {String} searchFormId The Id of the relate.
  */
 export const init = (tableId, searchFormId) => {
-    const [bbbid, removeImportedId, tools] = getTableInformations(tableId);
-    repository.fetchRecordings(bbbid, removeImportedId, tools)
+    fetchRecordingData(tableId)
         .then(response => setupDatatable(tableId, searchFormId, response))
         .catch(displayException);
 };

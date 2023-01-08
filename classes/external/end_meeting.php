@@ -14,27 +14,24 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-/**
- * BigBlueButtonBN internal API for meeting
- *
- * @package   mod_bigbluebuttonbn
- * @category  external
- * @copyright 2018 onwards, Blindside Networks Inc
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
-
 namespace mod_bigbluebuttonbn\external;
 
+use core\notification;
 use external_api;
 use external_function_parameters;
 use external_single_structure;
 use external_value;
-use mod_bigbluebuttonbn\event\events;
-use mod_bigbluebuttonbn\local\bbb_constants;
-use mod_bigbluebuttonbn\local\helpers\instance;
-use mod_bigbluebuttonbn\local\helpers\meeting;
-use moodle_exception;
+use mod_bigbluebuttonbn\instance;
+use mod_bigbluebuttonbn\local\bigbluebutton;
+use mod_bigbluebuttonbn\local\exceptions\bigbluebutton_exception;
+use mod_bigbluebuttonbn\logger;
+use mod_bigbluebuttonbn\meeting;
 use restricted_context_exception;
+
+defined('MOODLE_INTERNAL') || die();
+
+global $CFG;
+require_once($CFG->libdir . '/externallib.php');
 
 /**
  * External service to end a meeting.
@@ -53,7 +50,7 @@ class end_meeting extends external_api {
     public static function execute_parameters(): external_function_parameters {
         return new external_function_parameters([
             'bigbluebuttonbnid' => new external_value(PARAM_INT, 'bigbluebuttonbn instance id'),
-            'meetingid' => new external_value(PARAM_RAW, 'bigbluebuttonbn meetingid'),
+            'groupid' => new external_value(PARAM_INT, 'bigbluebuttonbn group id', VALUE_DEFAULT, 0),
         ]);
     }
 
@@ -61,48 +58,62 @@ class end_meeting extends external_api {
      * Updates a recording
      *
      * @param int $bigbluebuttonbnid the bigbluebuttonbn instance id
-     * @param string $meetingid
+     * @param int $groupid the groupid (either 0 or the groupid)
      * @return array (empty array for now)
-     * @throws \coding_exception
-     * @throws \dml_exception
      * @throws \invalid_parameter_exception
-     * @throws \required_capability_exception
-     * @throws \restricted_context_exception
-     * @throws moodle_exception
+     * @throws \moodle_exception
+     * @throws restricted_context_exception
      */
     public static function execute(
         int $bigbluebuttonbnid,
-        string $meetingid
+        int $groupid
     ): array {
         // Validate the bigbluebuttonbnid ID.
         [
             'bigbluebuttonbnid' => $bigbluebuttonbnid,
-            'meetingid' => $meetingid,
+            'groupid' => $groupid,
         ] = self::validate_parameters(self::execute_parameters(), [
             'bigbluebuttonbnid' => $bigbluebuttonbnid,
-            'meetingid' => $meetingid,
+            'groupid' => $groupid,
         ]);
 
         // Fetch the session, features, and profile.
-        [
-            'bbbsession' => $bbbsession,
-            'context' => $context
-        ] = instance::get_session_from_id($bigbluebuttonbnid);
+        $instance = instance::get_from_instanceid($bigbluebuttonbnid);
+        if (empty($instance)) {
+            throw new \moodle_exception('Unknown Instance');
+        }
+        if (!groups_group_visible($groupid, $instance->get_course(), $instance->get_cm())) {
+            throw new restricted_context_exception();
+        }
+        $instance->set_group_id($groupid);
+        $context = $instance->get_context();
 
         // Validate that the user has access to this activity and to manage recordings.
         self::validate_context($context);
-        if (!$bbbsession['administrator'] && !$bbbsession['moderator']) {
+
+        if (!$instance->user_can_end_meeting()) {
             throw new restricted_context_exception();
         }
         // Execute the end command.
-        meeting::bigbluebuttonbn_end_meeting($meetingid, $bbbsession['modPW']);
-        // Moodle event logger: Create an event for meeting ended.
-        if (isset($bbbsession['bigbluebuttonbn'])) {
-            \mod_bigbluebuttonbn\local\helpers\logs::bigbluebuttonbn_event_log(events::$events['meeting_end'],
-                $bbbsession['bigbluebuttonbn']);
+        $meeting = new meeting($instance);
+        try {
+            $meeting->end_meeting();
+        } catch (bigbluebutton_exception $e) {
+            return [
+                'warnings' => [
+                    [
+                        'item' => $instance->get_meeting_name(),
+                        'itemid' => $instance->get_instance_id(),
+                        'warningcode' => 'notFound',
+                        'message' => $e->getMessage()
+                    ]
+                ]
+            ];
         }
+        logger::log_meeting_ended_event($instance);
         // Update the cache.
-        meeting::bigbluebuttonbn_get_meeting_info($meetingid, bbb_constants::BIGBLUEBUTTONBN_UPDATE_CACHE);
+        $meeting->update_cache();
+        notification::add(get_string('end_session_notification', 'mod_bigbluebuttonbn'), notification::INFO);
         return [];
     }
 
@@ -113,6 +124,8 @@ class end_meeting extends external_api {
      * @since Moodle 3.0
      */
     public static function execute_returns(): external_single_structure {
-        return new external_single_structure([]);
+        return new external_single_structure([
+            'warnings' => new \external_warnings()
+        ]);
     }
 }

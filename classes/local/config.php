@@ -14,36 +14,43 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+namespace mod_bigbluebuttonbn\local;
+
+use mod_bigbluebuttonbn\instance;
+use mod_bigbluebuttonbn\recording;
+
 /**
- * The mod_bigbluebuttonbn locallib/config.
+ * Handles the global configuration based on config.php.
  *
  * @package   mod_bigbluebuttonbn
  * @copyright 2010 onwards, Blindside Networks Inc
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  * @author    Jesus Federico  (jesus [at] blindsidenetworks [dt] com)
  */
-
-namespace mod_bigbluebuttonbn\local;
-
-use mod_bigbluebuttonbn\local\bbb_constants;
-
-defined('MOODLE_INTERNAL') || die();
-global $CFG;
-
-/**
- * Handles the global configuration based on config.php.
- *
- * @copyright 2010 onwards, Blindside Networks Inc
- * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- */
 class config {
+
+    /** @var string Default bigbluebutton server url */
+    public const DEFAULT_SERVER_URL = 'http://test-install.blindsidenetworks.com/bigbluebutton/';
+
+    /** @var string Default bigbluebutton server shared secret */
+    public const DEFAULT_SHARED_SECRET = '8cd8ef52e8e101574e400365b55e11a6';
+
+    /** @var string the default bigbluebutton checksum algorithm */
+    public const DEFAULT_CHECKSUM_ALGORITHM = 'SHA1';
+
+    /** @var array list of supported bigbluebutton checksum algorithm */
+    const CHECKSUM_ALGORITHMS = [
+        self::DEFAULT_CHECKSUM_ALGORITHM,
+        'SHA256',
+        'SHA512'
+    ];
 
     /**
      * Returns moodle version.
      *
      * @return string
      */
-    public static function get_moodle_version_major() {
+    protected static function get_moodle_version_major() {
         global $CFG;
         $versionarray = explode('.', $CFG->version);
         return $versionarray[0];
@@ -54,10 +61,10 @@ class config {
      *
      * @return array
      */
-    public static function defaultvalues() {
-        return array(
-            'server_url' => (string) bbb_constants::BIGBLUEBUTTONBN_DEFAULT_SERVER_URL,
-            'shared_secret' => (string) bbb_constants::BIGBLUEBUTTONBN_DEFAULT_SHARED_SECRET,
+    protected static function defaultvalues() {
+        return [
+            'server_url' => self::DEFAULT_SERVER_URL,
+            'shared_secret' => self::DEFAULT_SHARED_SECRET,
             'voicebridge_editable' => false,
             'importrecordings_enabled' => false,
             'importrecordings_from_deleted_enabled' => false,
@@ -67,7 +74,7 @@ class config {
             'waitformoderator_cache_ttl' => '60',
             'userlimit_default' => '0',
             'userlimit_editable' => false,
-            'preuploadpresentation_enabled' => false,
+            'preuploadpresentation_editable' => false,
             'sendnotifications_enabled' => false,
             'recordingready_enabled' => false,
             'recordingstatus_enabled' => false,
@@ -75,22 +82,18 @@ class config {
             'participant_moderator_default' => '0',
             'scheduled_pre_opening' => '10',
             'recordings_enabled' => true,
-            'recordings_html_default' => false,
-            'recordings_html_editable' => false,
-            'recordings_deleted_default' => false,
-            'recordings_deleted_editable' => false,
             'recordings_imported_default' => false,
             'recordings_imported_editable' => false,
             'recordings_preview_default' => true,
             'recordings_preview_editable' => false,
-            'recordings_validate_url' => true,
             'recording_default' => true,
             'recording_editable' => true,
-            'recording_icons_enabled' => true,
+            'recording_refresh_period' => recording::RECORDING_REFRESH_DEFAULT_PERIOD,
             'recording_all_from_start_default' => false,
             'recording_all_from_start_editable' => false,
             'recording_hide_button_default' => false,
             'recording_hide_button_editable' => false,
+            'recording_protect_editable' => true,
             'general_warning_message' => '',
             'general_warning_roles' => 'editingteacher,teacher',
             'general_warning_box_type' => 'info',
@@ -111,14 +114,11 @@ class config {
             'disablenote_editable' => true,
             'hideuserlist_default' => false,
             'hideuserlist_editable' => true,
-            'lockedlayout_default' => false,
-            'lockedlayout_editable' => true,
-            'lockonjoin_default' => false,
-            'lockonjoin_editable' => true,
-            'lockonjoinconfigurable_default' => false,
-            'lockonjoinconfigurable_editable' => true,
+            'lockonjoin_default' => true,
+            'lockonjoin_editable' => false,
             'welcome_default' => '',
-        );
+            'checksum_algorithm' => self::DEFAULT_CHECKSUM_ALGORITHM
+        ];
     }
 
     /**
@@ -155,7 +155,7 @@ class config {
     /**
      * Validates if recording settings are enabled.
      *
-     * @return boolean
+     * @return bool
      */
     public static function recordings_enabled() {
         return (boolean)self::get('recordings_enabled');
@@ -164,7 +164,7 @@ class config {
     /**
      * Validates if imported recording settings are enabled.
      *
-     * @return boolean
+     * @return bool
      */
     public static function importrecordings_enabled() {
         return (boolean)self::get('importrecordings_enabled');
@@ -176,7 +176,7 @@ class config {
      * @return array
      */
     public static function get_options() {
-        return array(
+        return [
                'version_major' => self::get_moodle_version_major(),
                'voicebridge_editable' => self::get('voicebridge_editable'),
                'importrecordings_enabled' => self::get('importrecordings_enabled'),
@@ -185,26 +185,22 @@ class config {
                'waitformoderator_editable' => self::get('waitformoderator_editable'),
                'userlimit_default' => self::get('userlimit_default'),
                'userlimit_editable' => self::get('userlimit_editable'),
-               'preuploadpresentation_enabled' => self::get('preuploadpresentation_enabled'),
+               'preuploadpresentation_editable' => self::get('preuploadpresentation_editable'),
                'sendnotifications_enabled' => self::get('sendnotifications_enabled'),
                'recordings_enabled' => self::get('recordings_enabled'),
                'meetingevents_enabled' => self::get('meetingevents_enabled'),
-               'recordings_html_default' => self::get('recordings_html_default'),
-               'recordings_html_editable' => self::get('recordings_html_editable'),
-               'recordings_deleted_default' => self::get('recordings_deleted_default'),
-               'recordings_deleted_editable' => self::get('recordings_deleted_editable'),
                'recordings_imported_default' => self::get('recordings_imported_default'),
                'recordings_imported_editable' => self::get('recordings_imported_editable'),
                'recordings_preview_default' => self::get('recordings_preview_default'),
                'recordings_preview_editable' => self::get('recordings_preview_editable'),
-               'recordings_validate_url' => self::get('recordings_validate_url'),
                'recording_default' => self::get('recording_default'),
                'recording_editable' => self::get('recording_editable'),
-               'recording_icons_enabled' => self::get('recording_icons_enabled'),
+               'recording_refresh_period' => self::get('recording_refresh_period'),
                'recording_all_from_start_default' => self::get('recording_all_from_start_default'),
                'recording_all_from_start_editable' => self::get('recording_all_from_start_editable'),
                'recording_hide_button_default' => self::get('recording_hide_button_default'),
                'recording_hide_button_editable' => self::get('recording_hide_button_editable'),
+               'recording_protect_editable' => self::get('recording_protect_editable'),
                'general_warning_message' => self::get('general_warning_message'),
                'general_warning_box_type' => self::get('general_warning_box_type'),
                'general_warning_button_text' => self::get('general_warning_button_text'),
@@ -224,14 +220,11 @@ class config {
                'disablenote_default' => self::get('disablenote_default'),
                'hideuserlist_editable' => self::get('hideuserlist_editable'),
                'hideuserlist_default' => self::get('hideuserlist_default'),
-               'lockedlayout_editable' => self::get('lockedlayout_editable'),
-               'lockedlayout_default' => self::get('lockedlayout_default'),
                'lockonjoin_editable' => self::get('lockonjoin_editable'),
                'lockonjoin_default' => self::get('lockonjoin_default'),
-               'lockonjoinconfigurable_editable' => self::get('lockonjoinconfigurable_editable'),
-               'lockonjoinconfigurable_default' => self::get('lockonjoinconfigurable_default'),
                'welcome_default' => self::get('welcome_default'),
-          );
+               'welcome_editable' => self::get('welcome_editable'),
+        ];
     }
 
     /**
@@ -242,9 +235,9 @@ class config {
      *
      * @return array
      */
-    public static function bigbluebuttonbn_get_enabled_features($typeprofiles, $type = null) {
-        $enabledfeatures = array();
-        $features = $typeprofiles[bbb_constants::BIGBLUEBUTTONBN_TYPE_ALL]['features'];
+    public static function get_enabled_features($typeprofiles, $type = null) {
+        $enabledfeatures = [];
+        $features = $typeprofiles[instance::TYPE_ALL]['features'];
         if (!is_null($type) && key_exists($type, $typeprofiles)) {
             $features = $typeprofiles[$type]['features'];
         }

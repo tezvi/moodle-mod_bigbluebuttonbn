@@ -13,6 +13,14 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
+/**
+ * JS for the mod_form page on mod_bigbluebuttonbn plugin.
+ *
+ * @module      mod_bigbluebuttonbn/mod_form
+ * @copyright   2021 Blindside Networks Inc
+ * @license     http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ */
+
 import {get_string as getString} from 'core/str';
 import Notification from 'core/notification';
 import Templates from "core/templates";
@@ -42,10 +50,12 @@ const ELEMENT_SELECTOR = {
 export const init = (info) => {
     const selectedType = ELEMENT_SELECTOR.instanceTypeSelection();
     const instanceTypeProfiles = JSON.parse(ELEMENT_SELECTOR.instanceTypeProfiles().dataset.profileTypes);
+
     let profileType = info.instanceTypeDefault;
     if (selectedType !== null && selectedType.selectedIndex !== -1) {
         profileType = selectedType.options[selectedType.selectedIndex].value;
     }
+
     const isFeatureEnabled = (profileType, feature) => {
         const features = instanceTypeProfiles[profileType].features;
         return (features.indexOf(feature) !== -1);
@@ -61,11 +71,13 @@ export const init = (info) => {
         const currentTypeSelect = e.target;
         updateSelectionFromType(currentTypeSelect);
     });
+
     ELEMENT_SELECTOR.participantAddButton().addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
         participantAddFromCurrentSelection();
     });
+
     participantListInit();
 };
 
@@ -125,6 +137,9 @@ const applyInstanceTypeProfile = (profileType, isFeatureEnabled) => {
     // Show recordings imported settings validation.
     showInput('id_recordings_imported', showAll ||
         isFeatureEnabled(profileType, 'showrecordings'));
+    // Show lock settings validation.
+    showFieldset('id_lock', showAll ||
+        isFeatureEnabled(profileType, 'lock'));
     // Preuploadpresentation feature validation.
     showFieldset('id_preuploadpresentation', showAll ||
         isFeatureEnabled(profileType, 'preuploadpresentation'));
@@ -157,33 +172,30 @@ const applyInstanceTypeProfile = (profileType, isFeatureEnabled) => {
  * Init the participant list
  */
 const participantListInit = () => {
-
     const participantData = JSON.parse(ELEMENT_SELECTOR.participantData().dataset.participantData);
     const participantList = getParticipantList();
-    participantList.forEach(
-        (participant) => {
-            const selectionTypeValue = participant.selectiontype;
-            const selectionValue = participant.selectionid;
-            const selectionRole = participant.role;
-            if (participant.selectiontype === 'all' ||
-                typeof participantData[participant.selectiontype].children[participant.selectionid] !== 'undefined') {
-                // Add it to the form, but don't add the delete button if it is the first item.
-                participantAddToForm(selectionTypeValue, selectionValue, selectionRole, true);
-            }
+    participantList.forEach(participant => {
+        const selectionTypeValue = participant.selectiontype;
+        const selectionValue = participant.selectionid;
+        const selectionRole = participant.role;
+        if (participant.selectiontype === 'all' ||
+            typeof participantData[participant.selectiontype].children[participant.selectionid] !== 'undefined') {
+            // Add it to the form, but don't add the delete button if it is the first item.
+            participantAddToForm(selectionTypeValue, selectionValue, selectionRole, true).then();
         }
-    );
+    });
 };
 
 /**
- * Add rows to the participant list dependingon the current selection.
+ * Add rows to the participant list depending on the current selection.
  *
  * @param {string} selectionTypeValue
  * @param {string} selectionValue
  * @param {string} selectedRole
- * @param {bool} canRemove
+ * @param {boolean} canRemove
  * @returns {Promise<void>}
  */
-const participantAddToForm = async (selectionTypeValue, selectionValue, selectedRole, canRemove) => {
+const participantAddToForm = async(selectionTypeValue, selectionValue, selectedRole, canRemove) => {
     const participantData = JSON.parse(ELEMENT_SELECTOR.participantData().dataset.participantData);
     const sviewer = await getString('mod_form_field_participant_bbb_role_viewer', 'mod_bigbluebuttonbn');
     const smoderator = await getString('mod_form_field_participant_bbb_role_moderator', 'mod_bigbluebuttonbn');
@@ -209,7 +221,7 @@ const participantAddToForm = async (selectionTypeValue, selectionValue, selected
         newNode.querySelector('.participant-select').addEventListener('change', () => {
             participantListRoleUpdate(selectionTypeValue, selectionValue);
         });
-        // Now add the callbacks: participantListRoleUpdate() and participantRemove()
+        // Now add the callbacks: participantListRoleUpdate() and participantRemove().
         const removeNode = newNode.querySelector('.remove-button');
         if (removeNode) {
             removeNode
@@ -229,7 +241,7 @@ const participantAddToForm = async (selectionTypeValue, selectionValue, selected
 /**
  * Update the related form element with the list value.
  *
- * @param list
+ * @param {object} list
  */
 const participantListUpdate = (list) => {
     const participantList = ELEMENT_SELECTOR.participantList();
@@ -242,7 +254,10 @@ const participantListUpdate = (list) => {
  */
 const getParticipantList = () => {
     const participantListValue = ELEMENT_SELECTOR.participantList().value;
-    return JSON.parse(participantListValue?participantListValue:"[]");
+    if (participantListValue) {
+        return JSON.parse(participantListValue);
+    }
+    return [];
 };
 
 /**
@@ -276,7 +291,7 @@ const participantRemove = (selectionTypeValue, selectionValue) => {
  * Role update
  *
  * @param {string} type
- * @param {number} id
+ * @param {string} id
  */
 const participantListRoleUpdate = (type, id) => {
     // Update in memory.
@@ -284,8 +299,7 @@ const participantListRoleUpdate = (type, id) => {
     const pList = getParticipantList();
 
     for (var i = 0; i < pList.length; i++) {
-        if (pList[i].selectiontype === type &&
-            pList[i].selectionid === (id === '' ? null : id)) {
+        if (pList[i].selectiontype === type && pList[i].selectionid === id) {
             pList[i].role = participantListRoleSelection.value;
         }
     }
@@ -313,10 +327,11 @@ const participantAddFromCurrentSelection = () => {
         "role": "viewer"
     });
     // Add it to the form.
-    participantAddToForm(selectionType.value, selection.value, 'viewer', true);
+    participantAddToForm(selectionType.value, selection.value, 'viewer', true).then();
     // Update in the form.
     participantListUpdate(pList);
 };
+
 /**
  * Update selectable options when changing types
  *
@@ -324,11 +339,13 @@ const participantAddFromCurrentSelection = () => {
  */
 const updateSelectionFromType = (currentTypeSelect) => {
     const createNewOption = (selectItem, label, value) => {
-        let option = document.createElement('option');
+        const option = document.createElement('option');
         option.text = label;
         option.value = value;
+
         selectItem.add(option);
     };
+
     const participantData = JSON.parse(ELEMENT_SELECTOR.participantData().dataset.participantData);
     // Clear all selection items.
     const participantSelect = ELEMENT_SELECTOR.participantSelection();
@@ -338,16 +355,15 @@ const updateSelectionFromType = (currentTypeSelect) => {
     // Add options depending on the selection.
     if (currentTypeSelect.selectedIndex !== -1) {
         const options = Object.values(participantData[currentTypeSelect.value].children);
-        options.forEach(
-            (option) => {
-                createNewOption(participantSelect, option.name, option.id);
-            }
-        );
+        options.forEach(option => {
+            createNewOption(participantSelect, option.name, option.id);
+        });
+
         if (currentTypeSelect.value === 'all') {
             createNewOption(participantSelect, '---------------', 'all');
-            currentTypeSelect.disabled = true;
+            participantSelect.disabled = true;
         } else {
-            currentTypeSelect.disabled = false;
+            participantSelect.disabled = false;
         }
     }
 };
